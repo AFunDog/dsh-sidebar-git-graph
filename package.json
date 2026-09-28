@@ -1,0 +1,58 @@
+{
+  "name": "@zeng/dsh-sidebar-git-graph",
+  "version": "0.1.0",
+  "description": "DSH right-sidebar page: a read-only Git commit graph (VS Code style branch/merge lanes). Works with or without dsh-better-sidebar.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "author": "AFunDog",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AFunDog/dsh-sidebar-git-graph.git"
+  },
+  "homepage": "https://github.com/AFunDog/dsh-sidebar-git-graph#readme",
+  "bugs": {
+    "url": "https://github.com/AFunDog/dsh-sidebar-git-graph/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "git",
+    "git-graph",
+    "commit-graph",
+    "sidebar",
+    "dsh-better-sidebar"
+  ],
+  "engines": {
+    "node": ">=22.19"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.7-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "host": {
+      "platform": "any"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

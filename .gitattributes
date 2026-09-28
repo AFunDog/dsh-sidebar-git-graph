@@ -1,0 +1,8 @@
+# Normalize to LF in the repository; the plugin is plain text and git's output parsing is
+# line-based, so a stray CR is a real (if small) hazard.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.zip binary

@@ -1,0 +1,10 @@
+# dsh bundle patch: @zeng/dsh-sidebar-git-graph
+#
+# 只声明「挂载这一行」。id 就是侧栏「插件」页那张卡片写入 disabled 时用的 id；
+# 用户配置（如有）留在 profile 的 cordis.patch.yml 里作为覆盖项，本文件不写。
+#
+# 行用**裸包名**而不是 ./x.mjs：裸文件说明符会被 dsh-app-boot 改写成 file:// URL，
+# 插件列表 UI 的标题只能回退成一串路径；裸包名还能让 UI 读到本包 locale/ 里的标题。
+- insert:
+    - id: dsh-sidebar-git-graph
+      name: '@zeng/dsh-sidebar-git-graph'

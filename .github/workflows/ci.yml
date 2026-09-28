@@ -1,0 +1,34 @@
+# CI: the plugin ships as plain files (no build step), so the gate is syntax + the
+# zero-dependency test suite. Both runners have git on PATH; the route test creates its
+# own throwaway repository under the system temp directory.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19'
+      - name: Syntax check
+        run: |
+          node --check lib/index.js
+          node --check lib/git-read.js
+          node --check lib/workspace.js
+          node --check lib/client.js
+      - name: Unit tests
+        run: |
+          node test/git-read.test.cjs
+          node test/lane-layout.test.cjs
+      - name: Route test (real git repository under the temp directory)
+        run: node test/route.test.cjs

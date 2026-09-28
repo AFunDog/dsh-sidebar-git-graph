@@ -1,0 +1,11 @@
+# Build output is not committed; this plugin has no build step at all.
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Tooling leftovers
+.playwright-mcp/
+*.log
+.DS_Store
+Thumbs.db
