@@ -15,7 +15,12 @@
 
 - **一眼看清多分支关系**：并发的每条历史线占一条泳道，分叉/汇回处画曲线，合并提交的圆点更大，
   当前 HEAD 所在泳道更醒目。
-- **每个提交带 ref 芯片**：本地分支 / 远程分支 / 标签，当前分支反色高亮。
+- **每个提交带 ref 芯片**：本地分支 / 远程分支 / 标签；当前分支用主题的品牌色填充，文字用主题里
+  与它配对的那支前景色。
+- **一个工作区，多个仓库**：工作区里同时躺着好几个仓库是常态（本插件自己的 checkout 就在
+  `vendor/@zeng/` 下挂着一个嵌套仓库）。这时头部会长出一个下拉框，列出找到的每个仓库，
+  选择按工作区记忆。工作区自己只是某个仓库的子目录也没问题——外层那个仓库同样会被列出来。
+  发现过程**不会跑出工作区**：只向下扫，且层数、目录数、仓库数、耗时四个闸门都封着。
 - **头部信息**：仓库名、当前分支、`↑ahead ↓behind`、脏文件数。
 - **提交信息搜索**：高亮命中并逐个跳转（**不过滤列表** —— 过滤会打断泳道连续性，那正是这个页面的意义）。
 - **点行看详情**：完整 sha、作者与邮箱、绝对时间、父提交、参与的 refs。
@@ -41,7 +46,7 @@ dsh plugin --profile web add github:AFunDog/dsh-sidebar-git-graph
 
 ```sh
 # 钉 tag（推荐：lockfile 会记下解析到的 commit）
-dsh plugin --profile web add github:AFunDog/dsh-sidebar-git-graph#v0.1.0
+dsh plugin --profile web add github:AFunDog/dsh-sidebar-git-graph#v0.2.0
 
 # 从本地克隆（只接受**绝对**路径 —— 相对路径会被 spec 解析器拒绝）
 dsh plugin --profile web add /path/to/dsh-sidebar-git-graph
@@ -66,15 +71,18 @@ dsh plugin --profile web add /path/to/dsh-sidebar-git-graph
 ```
 lib/index.js      宿主半  —— POST /dsh-sidebar-git-graph/api、git 执行、信任围栏
 lib/git-read.js   宿主半  —— 纯函数：argv 构造 + 解析（可脱离 DSH 直接 import 测试）
+lib/repos.js      宿主半  —— 「这个工作区里有几个仓库」的发现器
 lib/workspace.js  宿主半  —— sessionId → 工作目录、工作区白名单、围栏
 lib/client.js     浏览器半 —— tab 注册、泳道布局、SVG 渲染（单文件）
-test/             三个零依赖测试（node test/<file>.cjs）
+test/             零依赖测试（node scripts/test.mjs 一把跑完）
 ```
 
 1. 浏览器半拿到会话的工作目录，向宿主要一份快照。
 2. 宿主按可信度解析工作区（会话服务 → 持久化工作区表 → 工作区注册表 → 最近写入的会话目录），
-   拒绝既不在已注册工作区内、又不是该会话自身 cwd 的路径；清环境、10s 超时、48 MiB 输出上限地
-   跑四条只读命令，返回 `{ repo, refs, commits[{ sha, parents, author, email, time, subject, refs }] }`。
+   拒绝既不在已注册工作区内、又不是该会话自身 cwd 的路径；然后挑要画的仓库：浏览器点名的那个
+   （得先过围栏，再用 `rev-parse` 确认它真的是仓库根）→ 否则工作目录所在的那个 → 否则扫到的第一个；
+   清环境、10s 超时、48 MiB 输出上限地跑四条只读命令，返回
+   `{ repo, repos[], selection, refs, commits[{ sha, parents, author, email, time, subject, refs }] }`。
 3. 浏览器半用**单趟**扫描把 `--topo-order` 的提交分到泳道，再在虚拟列表下画 SVG 曲线。
 
 布局函数与几何构造是纯函数，挂在插件返回值的 `internals` 上，测试用 `vm` 加载 bundle 直接驱动，
@@ -97,6 +105,7 @@ test/             三个零依赖测试（node test/<file>.cjs）
 | 设置 | 位置 | 默认 | 含义 |
 |---|---|---|---|
 | 每次加载的提交数 | 设置 → 侧边卡片 → Git 图谱 → 功能设置（仅 dsh-better-sidebar） | `400` | 100–2000。越大越完整，首次读取越慢。 |
+| 仓库扫描层数 | 同上 | `5` | 0–8。往工作区里找几个仓库供下拉选择；`0` = 不扫，只认工作目录所在的仓库。工作区特别大导致清单扫不全时，把它调小。 |
 | 历史范围 | 页面头部 | 全部分支 | 全部分支 / 仅当前分支。 |
 | 提交搜索 | 页面头部 | — | 高亮命中并逐个跳转。 |
 
@@ -104,6 +113,12 @@ test/             三个零依赖测试（node test/<file>.cjs）
 
 - **只读是设计**：不提供切分支/提交/push。要写就用别的工具。
 - **窗口有上限**（单次最多 2000 条，默认 400）；更老的历史会明确提示"被截断"，而不是静默丢弃。
+- **仓库发现是有上限的扫盘**：层数、目录数、仓库数、耗时四道闸门，踩到任何一条都会在页面上
+  如实说明（而不是假装清单就是全的）；解决办法是把扫描层数调小。显然不会住着"想单独画的仓库"
+  的目录（`node_modules`、`target`、`.venv`、构建产物…）不向下递归——但每个仍会 stat 一次，
+  所以一个恰好叫 `build` 的仓库不会被漏掉。
+- **下拉里只会出现从工作区够得到的仓库**：工作区自身、它里面的、以及把它包住的那个。别的路径
+  即使浏览器点名，宿主也会拒绝；并且会用 `rev-parse` 复核它确实是仓库根。
 - **搜索不过滤图**（理由见特性一节）。
 - **泳道配色**由 DSH 主题令牌 + `color-mix()` 派生；不支持 `color-mix()` 的浏览器退化为四个主题状态色循环。
 - **读持久化实现细节只是兜底**：`storages/workspace.json` 与 `sessions/` 是会话/工作区服务都拿不到时的
@@ -120,13 +135,30 @@ test/             三个零依赖测试（node test/<file>.cjs）
 （bundle 的 `rev` 从文件 mtime 重新推导，刷新就会拿到新内容）。
 
 ```sh
-node --check lib/index.js && node --check lib/client.js
-node test/git-read.test.cjs     # 解析器
-node test/lane-layout.test.cjs  # 泳道布局（vm 加载 bundle）
-node test/route.test.cjs        # 端到端：在系统临时目录里造一个真仓库
+npm test        # = node scripts/test.mjs：先 node --check 每个 lib 文件，再逐个跑测试
 ```
 
-route 测试需要 `PATH` 里有 `git`。
+route 测试需要 `PATH` 里有 `git`。`scripts/test.mjs` 自己发现 `test/*.test.cjs`——在 workflow 里
+手写测试清单已经坑过一次：新加的三个测试文件曾经一个都没在 CI 里跑。
+
+<details>
+<summary>拿真机主题核对颜色令牌</summary>
+
+颜色令牌是唯一一处**写错不报错**的地方：`var(--写错了, fallback)` 会静默走 fallback，于是
+"名字写错"表现为"颜色看着不对"。本插件就真的发过这个 bug——当前分支徽标用的是
+`--dsw-alias-label-inverse`，这个名字不存在，于是文字继承主题正文色，而底色是
+`--dsw-alias-brand-primary`；浅色主题下这两者解析到**同一个值**，对比度 1.00:1
+（深色主题下就是白底白字）。正确的名字是 `--dsw-alias-label-primary-foreground`
+（DSH 自己给 `button-primary-fill` = `brand-primary` 配的那支），修好后是 18.9:1 与 18.1:1。
+
+`test/style-tokens.test.cjs` 内置了一份 `--dsw-alias-*` 全量令牌快照，CSS 里用了快照之外的名字
+就失败。要让快照跟真实主题重新对一遍：
+
+```sh
+ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js \
+  node test/style-tokens.test.cjs
+```
+</details>
 
 ### 踩坑记录（写给后来者）
 
@@ -141,6 +173,15 @@ route 测试需要 `PATH` 里有 `git`。
 6. **验证时页面在后台标签会让"看起来是 bug"**：Chrome 会节流整轮渲染，`scroll` 事件、
    `requestAnimationFrame`、连截图都不发生 —— 虚拟列表"不跟随滚动"就是这样被骗了一次。
    先看 `document.visibilityState`。
+7. **颜色令牌写错名字不会报错**：`var(--写错了, fallback)` 静默走 fallback。当前分支徽标曾经用
+   `--dsw-alias-label-inverse`（不存在）→ 文字继承正文色 → 浅色主题下与底色 `brand-primary`
+   同为 `#0f1115`、深色主题下同为 `#f9fafb`，**两个主题都是 1.00:1**，深色下就是白底白字。
+   别靠眼睛，`test/style-tokens.test.cjs` 拿真实令牌表逐个核对。
+8. **git 没有"列出嵌套仓库"的命令**：嵌套的独立仓库在父仓库眼里只是几个被忽略的目录，
+   `git submodule` 看不见它们，只能扫盘。扫盘就得有闸门（层数/目录数/仓库数/耗时），
+   而且**并发批次里也要查上限**——只在循环顶端查会冲过头（实测 130 个仓库一趟冲到 128 条）。
+9. **CI 里手写测试文件清单会过期**：新加了测试但忘了写进 workflow，CI 照样全绿。
+   改成 `scripts/test.mjs` 自动发现`test/*.test.cjs`。
 
 ## 许可
 

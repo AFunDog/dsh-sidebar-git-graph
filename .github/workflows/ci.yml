@@ -1,6 +1,9 @@
 # CI: the plugin ships as plain files (no build step), so the gate is syntax + the
 # zero-dependency test suite. Both runners have git on PATH; the route test creates its
 # own throwaway repository under the system temp directory.
+#
+# 只跑 scripts/test.mjs —— 它自己发现 test/*.test.cjs。别在这里列测试清单：新加的
+# 测试文件忘了写进 workflow 时，CI 会照样变绿（本轮就差点踩到）。
 name: ci
 
 on:
@@ -20,15 +23,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.19'
-      - name: Syntax check
-        run: |
-          node --check lib/index.js
-          node --check lib/git-read.js
-          node --check lib/workspace.js
-          node --check lib/client.js
-      - name: Unit tests
-        run: |
-          node test/git-read.test.cjs
-          node test/lane-layout.test.cjs
-      - name: Route test (real git repository under the temp directory)
-        run: node test/route.test.cjs
+      - name: Syntax check + tests
+        run: node scripts/test.mjs

@@ -56,6 +56,21 @@ function buildRepo() {
   return repo
 }
 
+/** 造一个只有一个提交的最小仓库（多仓库测试用，要的是「能画」而不是「画得复杂」）。 */
+function initRepo(dir) {
+  fs.mkdirSync(dir, { recursive: true })
+  git(dir, ['init'])
+  git(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  git(dir, ['config', 'user.name', 'Test User'])
+  git(dir, ['config', 'user.email', 'test@example.com'])
+  git(dir, ['config', 'commit.gpgsign', 'false'])
+  git(dir, ['config', 'core.autocrlf', 'false'])
+  write(dir, 'a.txt', 'x\n')
+  git(dir, ['add', '.'])
+  git(dir, ['commit', '-m', `init ${path.basename(dir)}`])
+  return dir
+}
+
 function fakeCtx() {
   return {
     get: () => undefined,
@@ -165,6 +180,78 @@ async function main() {
   const nothing = await handleGraph(ctx, {})
   assert.strictEqual(nothing.ok, false)
   assert.strictEqual(nothing.error.code, 'no-workspace')
+
+  // ── 一个工作区里有多个仓库 ───────────────────────────────────────────────
+  // 形态照抄本仓库：工作区**不是**仓库，仓库在它下面几层（其中还有嵌套的）。
+  const { canonical } = await import('../lib/workspace.js')
+  const canon = (value) => canonical(value) ?? value
+  const ws = path.join(sandbox, 'ws')
+  const outer = initRepo(path.join(ws, 'aa-outer'))
+  const inner = initRepo(path.join(ws, 'vendor', '@scope', 'zz-inner'))
+  const outside = initRepo(path.join(sandbox, 'elsewhere', 'other'))
+
+  const auto = await handleGraph(ctx, { cwd: ws })
+  assert.strictEqual(auto.ok, true, `工作区不是仓库时也应画出里面的仓库：${JSON.stringify(auto.error)}`)
+  assert.strictEqual(auto.value.repo.root, canon(outer), '默认应挑工作区里相对路径最靠前的仓库')
+  assert.strictEqual(auto.value.selection.source, 'scan')
+  assert.strictEqual(auto.value.selection.requested, null)
+  assert.strictEqual(auto.value.selection.fallback, false)
+  assert.deepStrictEqual(
+    auto.value.repos.map((entry) => entry.name).sort(),
+    ['aa-outer', 'zz-inner'],
+    `仓库清单应同时列出两层里的仓库：${JSON.stringify(auto.value.repos)}`,
+  )
+  assert.strictEqual(auto.value.repos.filter((entry) => entry.current === true).length, 1, '只能有一个 current')
+  assert.strictEqual(auto.value.repos.find((entry) => entry.current === true).root, canon(outer))
+  assert.strictEqual(auto.value.repos.find((entry) => entry.name === 'zz-inner').outside, false)
+
+  // 点名切换 → 画的就是那一个。
+  const picked = await handleGraph(ctx, { cwd: ws, repo: inner })
+  assert.strictEqual(picked.ok, true)
+  assert.strictEqual(picked.value.repo.root, canon(inner))
+  assert.strictEqual(picked.value.repo.name, 'zz-inner')
+  assert.strictEqual(picked.value.selection.source, 'requested')
+  assert.strictEqual(picked.value.selection.fallback, false)
+  assert.strictEqual(picked.value.repos.find((entry) => entry.current === true).root, canon(inner))
+
+  // 工作区只是某个仓库的子目录时，那个仓库（在工作区**之外**）也要能画——祖先放行。
+  const subdir = path.join(outer, 'sub')
+  fs.mkdirSync(subdir, { recursive: true })
+  const fromSubdir = await handleGraph(ctx, { cwd: subdir, repo: outer })
+  assert.strictEqual(fromSubdir.ok, true, `工作区是仓库子目录时也要能画：${JSON.stringify(fromSubdir.error)}`)
+  assert.strictEqual(fromSubdir.value.repo.root, canon(outer))
+  assert.strictEqual(fromSubdir.value.selection.source, 'requested')
+  assert.strictEqual(fromSubdir.value.repos.find((entry) => entry.root === canon(outer)).outside, true)
+
+  // ── 围栏：只认工作区自身 / 内部 / 祖先 ───────────────────────────────────
+  // 1) 工作区之外的仓库 → 不认，退回自动挑（并如实标记 fallback，前端会提示）。
+  const faraway = await handleGraph(ctx, { cwd: ws, repo: outside })
+  assert.strictEqual(faraway.ok, true)
+  assert.strictEqual(faraway.value.repo.root, canon(outer), '工作区之外的仓库必须被拒')
+  assert.strictEqual(faraway.value.selection.fallback, true)
+  assert.strictEqual(faraway.value.selection.requested, outside)
+
+  // 2) 仓库里的普通子目录不是仓库根 → 不认。
+  const notRoot = await handleGraph(ctx, { cwd: ws, repo: subdir })
+  assert.strictEqual(notRoot.value.selection.fallback, true, '子目录不算仓库根')
+
+  // 3) 压根不存在的路径 → 不认。
+  const ghost = await handleGraph(ctx, { cwd: ws, repo: path.join(ws, 'aa-outer', 'nope') })
+  assert.strictEqual(ghost.value.selection.fallback, true)
+
+  // 4) 相对路径 → 不认（只收绝对路径，免得跟工作目录的解析方式纠缠）。
+  const relativeRepo = await handleGraph(ctx, { cwd: ws, repo: 'aa-outer' })
+  assert.strictEqual(relativeRepo.value.selection.fallback, true)
+
+  // 关掉扫描：清单里只剩「工作目录所属仓库」与「点名要的那个」，但点名仍然生效。
+  const noScan = await handleGraph(ctx, { cwd: ws, repo: inner, scanDepth: 0 })
+  assert.strictEqual(noScan.value.repo.root, canon(inner))
+  assert.deepStrictEqual(noScan.value.repos.map((entry) => entry.root), [canon(inner)])
+
+  // 缓存挡不住正确性：同参数再来一遍结果必须一致。
+  const again = await handleGraph(ctx, { cwd: ws, repo: inner })
+  assert.strictEqual(again.value.repo.root, picked.value.repo.root)
+  assert.strictEqual(again.value.commits.length, picked.value.commits.length)
 
   // ── 路由协议 ─────────────────────────────────────────────────────────────
   const okRes = fakeRes()

@@ -1,6 +1,6 @@
 {
   "name": "@zeng/dsh-sidebar-git-graph",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH right-sidebar page: a read-only Git commit graph (VS Code style branch/merge lanes). Works with or without dsh-better-sidebar.",
   "type": "module",
   "main": "lib/index.js",
@@ -43,6 +43,9 @@
   ],
   "engines": {
     "node": ">=22.19"
+  },
+  "scripts": {
+    "test": "node scripts/test.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh": ">=0.1.7-rc.1"
