@@ -13,7 +13,10 @@
   "files": [
     "lib",
     "locale",
+    "test",
+    "scripts",
     "cordis.patch.yml",
+    "CHANGELOG.md",
     "README.md",
     "README.zh.md",
     "LICENSE"
