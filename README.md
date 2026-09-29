@@ -35,8 +35,10 @@ The only git commands it runs are `rev-parse`, `status`, `for-each-ref` and `log
 dsh plugin --profile web add github:AFunDog/dsh-sidebar-git-graph
 ```
 
-Then restart `dsh web` (the host half adds a route) and hard-refresh the browser. Open the
-right sidebar's `+` menu and pick **Git graph**. The page follows the session you are viewing:
+Then restart `dsh web` (the host half adds a route) and hard-refresh the browser. Open the right
+sidebar and pick **Git graph** — from the `+` menu when dsh-better-sidebar is installed, or from
+the sidebar's guide page on a bare DSH (the `+` control is not drawn while that pane already
+holds the guide tab). The page follows the session you are viewing:
 switch sessions and it re-reads that session's workspace.
 
 <details>

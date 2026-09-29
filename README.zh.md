@@ -31,7 +31,9 @@
 dsh plugin --profile web add github:AFunDog/dsh-sidebar-git-graph
 ```
 
-装完**重启 `dsh web`**（宿主半要挂路由），再硬刷新浏览器。打开右侧栏的 `+` 菜单选「Git 图谱」。
+装完**重启 `dsh web`**（宿主半要挂路由），再硬刷新浏览器。打开右侧栏选「Git 图谱」——
+装了 dsh-better-sidebar 时它在 `+` 菜单里；裸 DSH 下就在侧栏的**引导页**上（该格已经放着引导页时
+`+` 控件不会绘制）。
 页面跟随你**正在看的会话**：切会话就重新读那个会话的工作区。
 
 <details>
