@@ -80,6 +80,12 @@ All notable changes to this plugin are documented here. The format follows
   A throw in that component blanks the page *including the commit graph*, and the other tests only
   covered pure functions, so this failure mode was invisible to them. It found four real crashes
   on its first run; the graph half had been carrying three of them since before this release.
+- `test/end-to-end-render.test.cjs` — **crosses the two halves**: real repositories, the real host
+  handlers, and the real render path, asserting the text on the page against what is actually in
+  the working tree. Every other test stopped at the seam between the halves and used a payload
+  shape its author had imagined; the stale-host bug lived exactly in that seam. Verified to have
+  teeth by mutation: dropping conflict rows, breaking the `untracked` flag, and discarding rename
+  origins each make it fail.
 
 ## [0.2.0] - 2026-09-29
 
