@@ -230,6 +230,14 @@ Traps that cost real time here, in the order they bite:
     always answered with commit-graph data. Because the browser half reloads on every page load
     while the host half needs a restart, an older host is a *normal* state to be in — so validate
     the response shape, or you will render "no changes" from a payload that never mentioned any.
+11. **Do not sanitize the git environment by disabling system config.** Setting
+    `GIT_CONFIG_NOSYSTEM=1` also drops `core.autocrlf`, which Git for Windows sets in its *system*
+    config. A repository with LF in the index and CRLF in the working tree then reports **every
+    line as changed** — `+1 −0` became `+88 −87`, a one-line addition drawn as a whole-file
+    rewrite. Setting `GIT_CONFIG_SYSTEM` to an empty string does the same thing (measured), so
+    "redirect it instead" is not a safe variant either. Set neither and let git find its own
+    config; whitelist the *environment* to keep credentials out. Verify by diffing your counts
+    against `git diff --numstat` on the same tree.
 
 ## License
 

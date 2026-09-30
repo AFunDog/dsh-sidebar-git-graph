@@ -39,6 +39,20 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Fixed
 
+- **Every line of a CRLF file was reported as changed.** The sanitized git environment set
+  `GIT_CONFIG_NOSYSTEM=1` to keep a repository's own configuration out of the commands. That also
+  dropped the *system* config — and Git for Windows ships `core.autocrlf=true` there. In a
+  repository whose index holds LF and whose working tree holds CRLF, every line then differs:
+  `docs/README.md` went from `+1 −0` to `+88 −87`, and a one-line addition was drawn as a
+  whole-file rewrite. Four neighbouring files happened to be stored with CRLF in the index and
+  looked correct, so "most rows are right" made it easy to miss. Found by comparing the page's
+  numbers against `git diff --numstat` on the same working tree.
+  - The fix is to set **neither** `GIT_CONFIG_NOSYSTEM` nor `GIT_CONFIG_SYSTEM`: git then finds
+    its own system config, exactly as the user's own `git` does. Pointing `GIT_CONFIG_SYSTEM` at
+    an empty string reproduces the same bug (measured), so "redirect it instead" is not a safe
+    variant.
+  - Repository-level `filter.*` and `diff.*.textconv` are still removed from the command line,
+    since those make git execute external programs while reading a repository.
 - **A stale host would have been reported as "no uncommitted changes".** Version skew is real
   here: the browser half is re-read on every page load (its `rev` comes from file mtime), while
   the host half only picks up changes on a restart. An older host ignores the request's `method`
