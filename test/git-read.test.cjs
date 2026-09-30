@@ -32,9 +32,20 @@ async function main() {
 
   const statusArgvValue = statusArgv('D:/x')
   assert.deepStrictEqual(statusArgvValue.slice(0, 2), ['-C', 'D:/x'])
-  for (const flag of ['status', '--porcelain=v1', '-b', '--untracked-files=no', 'core.quotepath=false']) {
+  for (const flag of ['status', '--porcelain=v1', '-b', 'core.quotepath=false']) {
     assert.ok(statusArgvValue.includes(flag), `status argv 缺少 ${flag}`)
   }
+  // 头部的「N 个改动」必须与改动区那两段用**同一个文件集**。
+  // 曾经这里是 `--untracked-files=no`，于是同一页上头部说 6、改动区说 7
+  // （2026-09-30 真机截图里就是这么并排显示的）。
+  assert.ok(
+    statusArgvValue.includes('--untracked-files=all'),
+    '头部脏文件数必须含未跟踪，否则与改动区的行数对不上——同一件事两个数',
+  )
+  assert.ok(
+    !statusArgvValue.includes('--untracked-files=no'),
+    '不能退回只算已跟踪：那会让头部计数比改动区少',
+  )
 
   const refsArgvValue = refsArgv('D:/x')
   assert.ok(refsArgvValue.includes('for-each-ref'))

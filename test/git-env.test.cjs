@@ -159,6 +159,26 @@ async function main() {
     assert.strictEqual(own.get('deleted.txt').status, 'D')
     assert.strictEqual(own.get('untracked.md').untracked, true)
     console.log(`  与外部 git 逐行比对：${externalRows.length} 个已跟踪文件一致`)
+
+    // ── 头部的「N 个改动」与改动区的行数必须是**同一个数** ──────────────
+    //
+    // 2026-09-30 真机截图里，同一个面板上头部写着「6 个改动」、下面的「更改」段写着 7 ——
+    // 因为头部的 status 用了 `--untracked-files=no`（只算已跟踪），而改动区含未跟踪。
+    // 同一件事两个数，看图的人只会以为其中一个坏了。
+    {
+      const inert = { get: () => undefined, logger: { info() {}, warn() {} } }
+      const graph = await host.internals.handleGraph(inert, { cwd: repo, max: 1 })
+      assert.strictEqual(graph.ok, true, JSON.stringify(graph.error))
+      const sectionRows = outcome.value.sections.conflicts.length
+        + outcome.value.sections.unstaged.length
+        + outcome.value.sections.staged.length
+      assert.strictEqual(
+        graph.value.repo.dirty, sectionRows,
+        `头部的脏文件数（${graph.value.repo.dirty}）必须等于改动区三段的实际行数（${sectionRows}）——` +
+        '否则同一个面板上同一件事会有两个数字',
+      )
+      assert.ok(sectionRows >= 5, `fixture 应当有足够多的改动，实到 ${sectionRows}`)
+    }
   }
 
   console.log('git-env.test.cjs: OK')
