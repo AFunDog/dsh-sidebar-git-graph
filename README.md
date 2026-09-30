@@ -14,6 +14,8 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
 
 ![The Git graph page: colored lanes, ref chips, commit rows](docs/screenshot.png)
 
+> The screenshot above predates the Changes area and shows the commit graph alone.
+
 ## Features
 
 - **Working-tree changes, VS Code style** — a **Changes** and a **Staged Changes** section above
