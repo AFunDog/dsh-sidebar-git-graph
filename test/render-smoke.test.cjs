@@ -238,6 +238,34 @@ function main() {
     assert.ok(render(binaryStates, PROPS).text.includes('二进制'), '二进制文案要出现')
   }
 
+  // ── 旧版宿主：绝不能把「没问过」显示成「没有改动」───────────────────────
+  //
+  // 2026-09-30 真机抓到的形态：宿主半没重启，`method` 被忽略，`changes` 回的是 graph 载荷，
+  // `ok: true` 且无错误。若只做「缺字段补空数组」，页面会印出
+  // **「✓ 没有未提交的改动」**——一个斩钉截铁的假话。
+  // 这里断言：那种响应必须走**错误态**，且话里要提到重启。
+  {
+    const graphPayload = {
+      state: 'ready',
+      repo: { root: 'D:/x', name: 'x', branch: 'main', detached: false, initial: false, upstream: null, ahead: 0, behind: 0, dirty: 0 },
+      refs: [], commits: [], truncated: false, scanned: 0, skip: 0,
+      gitVersion: '2.49.0', generatedAt: 1,
+      workspace: { cwd: 'D:/x', source: 'requested' },
+      repos: [], selection: { requested: null, source: 'cwd', fallback: false },
+      reposTruncated: false, reposTruncatedBy: [],
+    }
+    // 这条路径由 GraphView 之外的分支判断（见 looksLikeChanges），这里直接验「话术与状态」：
+    const internals = loadInternals()
+    assert.strictEqual(internals.looksLikeChanges(graphPayload), false)
+    // 用错误态渲染一次，确认文案能显示出来且不炸。
+    const text = render(baseStates(
+      { status: 'ready', value: graphValue() },
+      { status: 'error', error: { code: 'stale-host', message: internals.STALE_HOST_COPY } },
+    ), PROPS).text
+    assert.ok(text.includes('旧版'), `旧版宿主必须明说，而不是显示"没有改动"：${text.slice(0, 120)}`)
+    assert.ok(!text.includes('没有未提交的改动'), '绝不能在这种情形下说"没有改动"')
+  }
+
   // ── props 缺失 ───────────────────────────────────────────────────────────
   {
     const graphState = { status: 'ready', value: graphValue() }

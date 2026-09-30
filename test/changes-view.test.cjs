@@ -217,7 +217,42 @@ async function main() {
     hostile.saveFolded({ staged: true, unstaged: true, conflicts: true })
   }
 
-  // ── 三个 method 走同一个信封 ─────────────────────────────────────────────
+  // ── 旧版宿主：`method` 被忽略，`changes` 回的是 graph 载荷 ────────────────
+  //
+  // 这是 2026-09-30 在真机上抓到的：宿主半还没重启（0.3.0 的 method 分派未生效），
+  // 于是请求 `changes` 拿回来的是**提交图**数据（`{refs, commits, …}`），`ok: true`。
+  // 只做「缺字段补空数组」的归一化会让三个段都变空 → 页面显示「✓ 没有未提交的改动」，
+  // 而客户端其实一个改动都没问过。**斩钉截铁的假话**，比白屏更糟。
+  {
+    const { looksLikeChanges, looksLikeDiff, STALE_HOST_COPY } = internals
+    // 真实的 graph 载荷（从运行实例里抓的顶层字段）。
+    const graphPayload = {
+      state: 'ready',
+      repo: { root: 'D:/x', name: 'x', branch: 'main' },
+      refs: [], commits: [], truncated: false, scanned: 0, skip: 0,
+      gitVersion: '2.49.0', generatedAt: 1,
+      workspace: { cwd: 'D:/x', source: 'requested' },
+      repos: [], selection: { requested: null, source: 'cwd', fallback: false },
+      reposTruncated: false, reposTruncatedBy: [],
+    }
+    assert.strictEqual(looksLikeChanges(graphPayload), false, 'graph 载荷不能被当成改动载荷')
+    assert.strictEqual(looksLikeChanges({ sections: { conflicts: [], unstaged: [], staged: [] } }), true)
+    assert.strictEqual(looksLikeChanges({ sections: null }), false, 'sections 是 null 也不算')
+    assert.strictEqual(looksLikeChanges(null), false)
+    assert.strictEqual(looksLikeChanges(undefined), false)
+    assert.strictEqual(looksLikeChanges('nope'), false)
+
+    assert.strictEqual(looksLikeDiff({ kind: 'text', lines: [] }), true)
+    assert.strictEqual(looksLikeDiff({ kind: 'binary' }), true)
+    assert.strictEqual(looksLikeDiff(graphPayload), false, 'graph 载荷不能被当成 diff 载荷')
+    assert.strictEqual(looksLikeDiff(null), false)
+    assert.strictEqual(looksLikeDiff({ path: 'a.js' }), false, '没有 kind 就不算')
+
+    // 话术必须指向「重启」，而不是含糊的"出错了"。
+    assert.ok(/重启/.test(STALE_HOST_COPY), '要让用户知道怎么办：重启 dsh web')
+  }
+
+  // ── requestHost 三个 method 走同一个信封 ─────────────────────────────────
   {
     // requestHost 是 requestGraph/requestChanges/requestDiff 的唯一实现：断言它确实把
     // method 放进信封装出去了（宿主按它分派）。

@@ -224,6 +224,10 @@ Traps that cost real time here, in the order they bite:
 9. **A conflicted file and an untracked file share the status letter `U`** — so the client must
    not decide "use `--no-index`" from the letter. Getting it wrong renders the whole file as
    additions, again with no error. The host states `untracked` explicitly per row.
+10. **`method` is not part of the old contract.** Before this release the host ignored it and
+    always answered with commit-graph data. Because the browser half reloads on every page load
+    while the host half needs a restart, an older host is a *normal* state to be in — so validate
+    the response shape, or you will render "no changes" from a payload that never mentioned any.
 
 ## License
 

@@ -39,6 +39,15 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Fixed
 
+- **A stale host would have been reported as "no uncommitted changes".** Version skew is real
+  here: the browser half is re-read on every page load (its `rev` comes from file mtime), while
+  the host half only picks up changes on a restart. An older host ignores the request's `method`
+  and answers `changes` with *commit-graph* data — `ok: true`, no error, no `sections`. A
+  normalize-missing-fields-to-empty-arrays approach then produced three empty sections and the
+  page printed **"✓ no uncommitted changes"** for a client that had never asked about the working
+  tree at all. A confident false statement is worse than a blank page. The client now checks that
+  the response actually looks like the payload it asked for and, when it does not, says so and
+  points at the fix (restart `dsh web`). Found on a real machine, in exactly this skew.
 - **A conflicted file showed an empty diff.** Unmerged paths make `git diff` emit a *combined*
   diff (`@@@` hunks with two-character prefixes) that a unified-diff reader cannot parse, so the
   parser silently returned zero lines — an empty answer with no error attached. Conflicts now
