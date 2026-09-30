@@ -6,6 +6,72 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-30
+
+### Added
+
+- **A "Changes" area above the graph** (VS Code style). Two foldable sections — *Changes* and
+  *Staged Changes*, plus *Merge Changes* when a merge is in progress — with a status letter per
+  row (`M`/`A`/`D`/`R`/`C`/`U`), the added/deleted line counts from `git diff --numstat`, and
+  click-to-expand inline diffs. Section fold state is remembered.
+  - A file changed on both sides (`MM`) appears in **both** sections — that is what the two
+    sections mean.
+  - Untracked files show no `+/−` counts: `git diff --no-index` takes two paths, so counts would
+    cost one process per file. The section header counts only what it can count, and says so
+    rather than printing a `0` that would read as "no changes".
+  - A nested independent repository appears as one directory row, marked as not clickable with
+    the reason shown — `git` does not descend into it, so it has no diff to show.
+  - New read-only route methods `changes` and `diff` on the existing
+    `POST /dsh-sidebar-git-graph/api`, dispatched by the `method` field of the request envelope
+    (which the client had always sent and the host had always ignored). `graph` is unchanged and
+    a request with no `method` still means `graph`, so older clients keep working.
+  - `lib/changes.js` — argv construction and output parsing as pure functions, importable and
+    testable outside DSH.
+
+### Security
+
+- Paths arriving from the browser are fenced twice: `--literal-pathspecs` disables git's pathspec
+  magic (without it a path like `:(top)*` turns "read one file" into "read the whole tree"), and
+  `isRepoRelativePath` rejects absolute paths, drive letters, `..`, backslashes, a leading `-` or
+  `:`, and NUL/newline characters before any git process is spawned.
+- Patch output is capped at 512 KiB and diff commands carry `--no-color --no-ext-diff
+  --no-textconv`, so a repository's own config cannot make `git diff` execute a command.
+
+### Fixed
+
+- **A conflicted file showed an empty diff.** Unmerged paths make `git diff` emit a *combined*
+  diff (`@@@` hunks with two-character prefixes) that a unified-diff reader cannot parse, so the
+  parser silently returned zero lines — an empty answer with no error attached. Conflicts now
+  compare against `HEAD` (a normal unified diff, showing the file exactly as it is on disk,
+  conflict markers and all), and the parser recognises a combined diff and says so rather than
+  reporting "no changes".
+- The request envelope's `method` field is now honored. An unknown method returns an explicit
+  error instead of silently running the commit log, which used to be indistinguishable from
+  "my change had no effect".
+- **Four crashes that blanked the whole page** when the host returned an unexpected shape
+  (`repo: null`, `sections: null`, a missing `totals`, a non-array section). The graph half had
+  these too, from before this release. A throw inside the page component takes the commit graph
+  down with it, so the risky reads are now normalized up front. Found by
+  `test/render-smoke.test.cjs`, which renders the real component against deliberately malformed
+  responses.
+
+### Tests
+
+- `test/changes.test.cjs` — parsing of real `git status --porcelain=v2 -z` /
+  `git diff --numstat -z` bytes (including the 11-field `u` unmerged record, which is **not**
+  shaped like `1`/`2`, and paths containing spaces), plus end-to-end runs against temporary
+  repositories: every status letter, `--no-index`'s exit code 1 meaning success, renames needing
+  both paths, binary files, empty repositories, the row cap, and the route dispatch.
+- A **read-only invariant** test: every argv builder is asserted to produce only
+  `status`/`diff`. Adding a staging feature later will fail this test rather than quietly
+  contradicting the README.
+- `test/changes-view.test.cjs` — the browser half's path shortening (scope packages keep two
+  segments), row copy, absent-count handling, non-text diff states, and section fold persistence.
+- `test/render-smoke.test.cjs` — renders the real page component against malformed host responses.
+  A throw in that component blanks the page *including the commit graph*, and the other tests only
+  covered pure functions, so this failure mode was invisible to them. It found four real crashes
+  on its first run; the graph half had been carrying three of them since before this release.
+
 ## [0.2.0] - 2026-09-29
 
 ### Added

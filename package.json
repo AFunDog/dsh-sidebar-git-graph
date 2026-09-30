@@ -1,7 +1,7 @@
 {
   "name": "@zeng/dsh-sidebar-git-graph",
-  "version": "0.2.0",
-  "description": "DSH right-sidebar page: a read-only Git commit graph (VS Code style branch/merge lanes). Works with or without dsh-better-sidebar.",
+  "version": "0.3.0",
+  "description": "DSH right-sidebar page: a read-only Git commit graph plus a VS Code-style working-tree Changes area (staged/unstaged, inline diffs). Works with or without dsh-better-sidebar.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -38,6 +38,8 @@
     "git",
     "git-graph",
     "commit-graph",
+    "changes",
+    "source-control",
     "sidebar",
     "dsh-better-sidebar"
   ],

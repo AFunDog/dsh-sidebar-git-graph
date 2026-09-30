@@ -5,15 +5,21 @@
 
 A **right-sidebar page for DSH (DeepSeek Harness)** that draws the current session's
 repository as a **branches-and-merges commit graph** — VS Code style: colored lanes,
-bezier curves where branches split and merge, ref chips, per-commit details.
+bezier curves where branches split and merge, ref chips, per-commit details — with a
+**working-tree Changes area** above it.
 
-**Read-only.** It never runs `checkout`, `commit`, `reset`, `rebase`, `fetch` or `push`.
-The only git commands it runs are `rev-parse`, `status`, `for-each-ref` and `log`.
+**Read-only.** It never runs `checkout`, `commit`, `reset`, `rebase`, `fetch`, `push`,
+`add` or `restore`. The only git commands it runs are `rev-parse`, `status`,
+`for-each-ref`, `log` and `diff`.
 
 ![The Git graph page: colored lanes, ref chips, commit rows](docs/screenshot.png)
 
 ## Features
 
+- **Working-tree changes, VS Code style** — a **Changes** and a **Staged Changes** section above
+  the graph (plus **Merge Changes** during a merge), each row carrying its status letter
+  (`M`/`A`/`D`/`R`/`C`/`U`) and its added/deleted line counts. Click a file to expand its diff
+  inline; the sections fold and remember it.
 - **Branch/merge relationships at a glance** — one lane per concurrent line of history, curved
   connectors where a branch forks or merges back, thicker dots on merge commits, and the HEAD
   lane emphasized.
@@ -79,11 +85,15 @@ a restart".
 ```
 lib/index.js      host half  — POST /dsh-sidebar-git-graph/api, git execution, trust fence
 lib/git-read.js   host half  — pure: argv builders + parsers (importable by plain node)
+lib/changes.js    host half  — pure: working-tree argv builders + parsers
 lib/repos.js      host half  — "how many repositories are in this workspace" discovery
 lib/workspace.js  host half  — sessionId → working directory, workspace allow-list, fence
 lib/client.js     browser half — tab registration, lane layout, SVG rendering (single file)
 test/             zero-dependency tests (node scripts/test.mjs runs them all)
 ```
+
+The route dispatches on the request envelope's `method`: `graph` (commit DAG), `changes`
+(working-tree status) and `diff` (one file's patch).
 
 1. The browser half reads the session's working directory and asks the host for a snapshot.
 2. The host resolves which workspace belongs to that session (session service → persisted
@@ -111,7 +121,19 @@ so the test suite can drive them without a browser.
 
 ## Limitations
 
-- **Read-only by design.** No checkout/commit/push. To change branches, use another tool.
+- **Read-only by design.** No staging, no commit, no checkout, no push. To change the working
+  tree, use another tool.
+- **Untracked files carry no `+/−` counts.** `git diff --no-index` compares exactly two paths, so
+  per-file counts would mean one process per file — hundreds of them in a repository that has not
+  been `add`ed yet. The section header counts what it can and leaves the rest blank rather than
+  printing a `0` that would read as "nothing changed". A file changed on both sides shows up in
+  both sections, which is what the two sections are for.
+- **A nested repository is one non-clickable row.** `git` does not descend into a repository
+  inside a repository (even with `-uall`), so the outer repository sees a single directory and
+  there is no diff to show for it. The page says so on the row instead of doing nothing when
+  clicked.
+- **At most 3000 rows**, and at most 512 KiB of patch per file; both are reported in the page
+  rather than silently cut.
 - **The window is bounded** (up to 2000 commits per read, default 400); older history is
   reported as truncated rather than silently dropped.
 - **Repository discovery is bounded, and it scans the filesystem.** Depth, directory count,
@@ -169,6 +191,39 @@ ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js
   node test/style-tokens.test.cjs
 ```
 </details>
+
+## Notes for implementers
+
+Traps that cost real time here, in the order they bite:
+
+1. **`String.split(sep, limit)` discards the remainder** — it does not fold it into the last
+   element. `'a file with spaces.txt'.split(' ', 11)[10]` is `'a'`. Every porcelain v2 record
+   ends with a path that **may contain spaces**, so indexing by field number truncates it
+   silently. Split the fixed fields off and join the rest back.
+2. **The `u` (unmerged) record is not shaped like `1` or `2`** — it has **11** fields
+   (`u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>`). Parsing it as a 9-field `1`
+   record drops conflict files entirely, which is silent data loss that only appears during an
+   actual merge. Produce a real conflict and dump the bytes instead of trusting the docs.
+3. **`git diff --no-index` exits 1 when the files differ**, and stderr is empty in that case.
+   Without special-casing it, untracked files can never open a diff and there is no error message
+   to explain why.
+4. **Pass both paths for a rename.** With only the new path, `-M` does not detect the rename and
+   you get "new file mode" plus the whole file as additions (measured: 1 added line became 41).
+5. **Do not inspect `-z` output through a PowerShell pipeline.** PowerShell splits on newlines
+   and stringifies; `-z` output has no newlines, so the whole thing collapses into one element and
+   the NUL boundaries become easy to misread. Use Node with `encoding: 'buffer'` and split on NUL.
+6. **`--literal-pathspecs` is mandatory.** Without it a browser-supplied `path` is parsed as
+   pathspec syntax, and a value like `:(top)*` widens "read one file" into "read the whole tree".
+7. **Nested repositories have no diff.** `git` does not descend into a repository inside a
+   repository, even with `-uall`, so the outer repository reports one directory row and
+   `--no-index` on it fails with `Could not access '<dir>/null'`.
+8. **`git diff` on an unmerged path emits a *combined* diff** — `@@@` hunk headers with
+   two-character prefixes (`++`, ` +`, `+ `). A unified-diff reader cannot parse it and will
+   return zero lines, i.e. an empty diff with no error. Compare such paths against `HEAD`
+   instead; that is a normal unified diff and shows the file exactly as it is on disk.
+9. **A conflicted file and an untracked file share the status letter `U`** — so the client must
+   not decide "use `--no-index`" from the letter. Getting it wrong renders the whole file as
+   additions, again with no error. The host states `untracked` explicitly per row.
 
 ## License
 

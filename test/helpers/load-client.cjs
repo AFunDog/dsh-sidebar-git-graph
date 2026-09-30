@@ -15,7 +15,12 @@ const vm = require('node:vm')
 
 const BUNDLE = path.join(__dirname, '..', '..', 'lib', 'client.js')
 
-/** 最小 react 桩：只够构造元素与调用 hook，不参与断言。 */
+/**
+ * 最小 react 桩：只够构造元素与调用 hook，不参与断言。
+ *
+ * `extraGlobals.react` 可以整体换掉它——渲染冒烟测试需要 createElement 真的把元素记下来
+ * （默认这个返回 `{}`，用它调 GraphView 会在读 `.props` 时炸）。
+ */
 function reactStub() {
   return {
     createElement: () => ({}),
@@ -31,10 +36,13 @@ function reactStub() {
 /**
  * 加载客户端 bundle。
  * @param extraGlobals - 额外塞进沙箱的全局（例如桩 `localStorage`）。
- * @returns 工厂导出的 `internals`。
+ *   传 `react` 可以整体替换 react 桩（见 reactStub 的说明）。
+ * @returns 工厂导出的 `internals`，另附 `sandbox`（挂在 `internals.sandbox` 上不合适，
+ *   所以用非枚举属性带回：测试要读插件写进沙箱的全局，例如 `__DSH_GIT_GRAPH__`）。
  */
 function loadInternals(extraGlobals) {
   const source = fs.readFileSync(BUNDLE, 'utf8')
+  const globals = extraGlobals === undefined ? {} : extraGlobals
   const registered = []
   const sandbox = {
     window: {
@@ -56,7 +64,7 @@ function loadInternals(extraGlobals) {
     Date,
     JSON,
     URL,
-    ...(extraGlobals === undefined ? {} : extraGlobals),
+    ...globals,
   }
   sandbox.globalThis = sandbox
   vm.createContext(sandbox)
@@ -65,13 +73,16 @@ function loadInternals(extraGlobals) {
   assert.strictEqual(registered.length, 1, '应恰好注册一次模块')
   const entry = registered[0]
   assert.strictEqual(entry.id, '@zeng/dsh-sidebar-git-graph')
+  const react = globals.react === undefined ? reactStub() : globals.react
   const plugin = entry.factory((name) => {
-    if (name === 'react') return reactStub()
+    if (name === 'react') return react
     throw new Error(`未预料的 require：${name}`)
   })
   assert.strictEqual(typeof plugin.apply, 'function')
   // 跨 vm realm 的数组原型不同，deepStrictEqual 会假失败——只比长度。
   assert.strictEqual(plugin.inject.length, 0, '不得静态 inject 第三方服务（冷启动陷阱）')
+  // 插件写进沙箱的全局（诊断句柄等）只有从这里才读得到。
+  Object.defineProperty(plugin.internals, 'sandbox', { value: sandbox, enumerable: false })
   return plugin.internals
 }
 
