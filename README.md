@@ -6,11 +6,11 @@
 A **right-sidebar page for DSH (DeepSeek Harness)** that draws the current session's
 repository as a **branches-and-merges commit graph** — VS Code style: colored lanes,
 bezier curves where branches split and merge, ref chips, per-commit details — with a
-**working-tree Changes area** above it.
+**working-tree Changes area** above it, for **every working tree of the repository**.
 
 **Read-only.** It never runs `checkout`, `commit`, `reset`, `rebase`, `fetch`, `push`,
-`add` or `restore`. The only git commands it runs are `rev-parse`, `status`,
-`for-each-ref`, `log` and `diff`.
+`add`, `restore` or `worktree add/remove/prune`. The only git commands it runs are `rev-parse`,
+`status`, `for-each-ref`, `log`, `diff` and `worktree list`.
 
 ![The Git graph page: colored lanes, ref chips, commit rows](docs/screenshot.png)
 
@@ -33,6 +33,15 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
   itself only a subdirectory of a repository works too — the enclosing repository is offered as
   well. Discovery never leaves the workspace: it scans downwards, bounded by depth, directory
   count, repository count and a time budget.
+- **Every working tree of the repository** — a repository can have several
+  (`git worktree add`), each on its own branch with its own uncommitted changes, and the linked
+  ones usually live **outside** the workspace directory entirely (in the case this feature was
+  built for, they are sibling directories). The picker lists all of them, **each labelled with its
+  own branch**, so you can switch between the main working tree and a linked one and see that
+  working tree's graph and changes. The main working tree, detached heads and locked working trees
+  are marked; working trees whose directory is gone are skipped and counted in a notice rather than
+  silently dropped. Because the list comes from `git worktree list`, it works from any of them —
+  standing in a linked working tree also offers you the main one.
 - **Header at a glance** — repository name, current branch, `↑ahead ↓behind`, dirty-file count.
 - **Commit search** — highlights matches and steps through them (the graph stays intact; it
   never re-lays-out a filtered list).
@@ -88,6 +97,7 @@ a restart".
 lib/index.js      host half  — POST /dsh-sidebar-git-graph/api, git execution, trust fence
 lib/git-read.js   host half  — pure: argv builders + parsers (importable by plain node)
 lib/changes.js    host half  — pure: working-tree argv builders + parsers
+lib/worktrees.js  host half  — pure: `git worktree list` argv builder + parser
 lib/repos.js      host half  — "how many repositories are in this workspace" discovery
 lib/workspace.js  host half  — sessionId → working directory, workspace allow-list, fence
 lib/client.js     browser half — tab registration, lane layout, SVG rendering (single file)
@@ -103,9 +113,13 @@ The route dispatches on the request envelope's `method`: `graph` (commit DAG), `
    neither registered nor the session's own cwd, then picks the repository to draw: the one the
    browser named (if it passes the fence and `rev-parse` agrees it is a repository root), else the
    one containing the workspace, else the first one it finds inside the workspace. It runs the
-   four read-only commands with a sanitized environment, a 10 s timeout and a 48 MiB output cap,
-   and answers with
-   `{ repo, repos[], selection, refs, commits[{ sha, parents, author, email, time, subject, refs }] }`.
+   five read-only commands (including `worktree list`, which supplies the working trees of that
+   repository) with a sanitized environment, a 10 s timeout and a 48 MiB output cap, and answers
+   with
+   `{ repo, repos[], selection, worktrees, refs, commits[{ sha, parents, author, email, time, subject, refs }] }`.
+   The repository list has **two sources**: `git worktree list` (the working trees of the one
+   repository, each with its own branch) and the directory scan (independent repositories inside
+   the workspace), tagged per entry with `kind`.
 3. The browser half lays the commits out into lanes with one pass over `--topo-order` history
    and renders SVG bezier connectors under a virtualized row list.
 
@@ -145,8 +159,13 @@ so the test suite can drive them without a browser.
   each of them is still stat'd once, so a repository that happens to be named `build` is still
   found.
 - **The picker only offers what is reachable from the workspace** — the workspace itself, something
-  inside it, or the repository that encloses it. The host refuses any other path even if the
+  inside it, the repository that encloses it, or a **working tree of the repository the workspace
+  is in** (as reported by `git worktree list`). The host refuses any other path even if the
   browser asks for it, and re-checks with `rev-parse` that the path really is a repository root.
+- **A working tree is read on its own.** `git status` and `git log` are per working tree, so each
+  one shows its own branch, its own uncommitted changes and its own `HEAD`; the page never merges
+  two working trees into one view. Working trees that are gone (`prunable`) and bare repositories
+  are listed as a count in a notice rather than offered.
 - **Search does not filter the graph** — filtering would break lane continuity, which is the
   whole point of the page; matches are highlighted and stepped through instead.
 - **Lane colors** are derived from DSH theme tokens with `color-mix()`. On a browser without
@@ -238,6 +257,21 @@ Traps that cost real time here, in the order they bite:
     "redirect it instead" is not a safe variant either. Set neither and let git find its own
     config; whitelist the *environment* to keep credentials out. Verify by diffing your counts
     against `git diff --numstat` on the same tree.
+12. **A linked working tree is invisible to any filesystem scan.** `git worktree add` puts the
+    working tree wherever you ask — commonly a *sibling* of the main one, related to it by nothing
+    but a one-line `.git` **file** (`gitdir: …/.git/worktrees/<name>`). Walking the workspace
+    directory finds neither it nor any hint that it exists, and `rev-parse --show-toplevel` inside
+    it answers with *itself*, so "is it inside / does it enclose the workspace" is false in both
+    directions. Ask `git worktree list` instead — and ask it of a **host-chosen** repository, never
+    of the path being validated: `worktree list` always lists at least the repository it was asked
+    about, so a requested path would vouch for itself and the fence would be a no-op.
+13. **`worktree list --porcelain -z` separates records with *two* NULs and fields with one.** Paths
+    are absolute with forward slashes and are **not** quoted in `-z` mode (a path containing a
+    space comes through raw), so they must still be normalized before comparing. Optional lines:
+    `detached` (and then there is **no** `branch` line), `locked`, `prunable <reason>`, `bare` —
+    and `locked`/`prunable` may carry a reason, so compare for the word, not for equality. `locked`
+    means only "not removable": its contents are perfectly readable and it must stay listed;
+    `prunable` means the directory is gone and it must not be.
 
 ## License
 

@@ -7,8 +7,9 @@
 （VS Code 风格 —— 彩色泳道、分叉与汇入的贝塞尔曲线、ref 芯片、点开看提交详情），
 并在它上方给出**工作树改动区**。
 
-**只读**：不 checkout、不 commit、不 reset、不 rebase、不 fetch/push、不 add、不 restore。
-只跑 `rev-parse`、`status`、`for-each-ref`、`log`、`diff` 五条命令。
+**只读**：不 checkout、不 commit、不 reset、不 rebase、不 fetch/push、不 add、不 restore、
+不 `worktree add/remove/prune`。
+只跑 `rev-parse`、`status`、`for-each-ref`、`log`、`diff`、`worktree list` 六条命令。
 
 ![Git 图谱页面：彩色泳道、ref 芯片、提交行](docs/screenshot.png)
 
@@ -26,6 +27,12 @@
   `vendor/@zeng/` 下挂着一个嵌套仓库）。这时头部会长出一个下拉框，列出找到的每个仓库，
   选择按工作区记忆。工作区自己只是某个仓库的子目录也没问题——外层那个仓库同样会被列出来。
   发现过程**不会跑出工作区**：只向下扫，且层数、目录数、仓库数、耗时四个闸门都封着。
+- **同一个仓库的每个工作树**：一个仓库可以有多个工作树（`git worktree add`），各有各的分支、
+  各有各的未提交改动，而关联工作树通常**根本不在工作区目录里**（这个功能就是为一对**兄弟目录**
+  的工作树做的）。下拉框把它们全列出来，**每一项标着它自己的分支**，可以自由切换，切换后看到的
+  就是这个工作树自己的图谱与改动。主工作树、分离头、被 lock 的工作树都有标记；目录已经不在的
+  工作树不列出、但会在提示里给出条数，不会悄悄少一个。清单来自 `git worktree list`，
+  所以从**任意一个**工作树出发都能看到全集——站在关联工作树里，主工作树同样可选。
 - **头部信息**：仓库名、当前分支、`↑ahead ↓behind`、脏文件数。
 - **提交信息搜索**：高亮命中并逐个跳转（**不过滤列表** —— 过滤会打断泳道连续性，那正是这个页面的意义）。
 - **点行看详情**：完整 sha、作者与邮箱、绝对时间、父提交、参与的 refs。
@@ -77,6 +84,7 @@ dsh plugin --profile web add /path/to/dsh-sidebar-git-graph
 lib/index.js      宿主半  —— POST /dsh-sidebar-git-graph/api、git 执行、信任围栏
 lib/git-read.js   宿主半  —— 纯函数：argv 构造 + 解析（可脱离 DSH 直接 import 测试）
 lib/changes.js    宿主半  —— 纯函数：工作树改动的 argv 构造 + 解析
+lib/worktrees.js  宿主半  —— 纯函数：`git worktree list` 的 argv 构造 + 解析
 lib/repos.js      宿主半  —— 「这个工作区里有几个仓库」的发现器
 lib/workspace.js  宿主半  —— sessionId → 工作目录、工作区白名单、围栏
 lib/client.js     浏览器半 —— tab 注册、泳道布局、SVG 渲染（单文件）
@@ -89,8 +97,10 @@ test/             零依赖测试（node scripts/test.mjs 一把跑完）
 2. 宿主按可信度解析工作区（会话服务 → 持久化工作区表 → 工作区注册表 → 最近写入的会话目录），
    拒绝既不在已注册工作区内、又不是该会话自身 cwd 的路径；然后挑要画的仓库：浏览器点名的那个
    （得先过围栏，再用 `rev-parse` 确认它真的是仓库根）→ 否则工作目录所在的那个 → 否则扫到的第一个；
-   清环境、10s 超时、48 MiB 输出上限地跑四条只读命令，返回
-   `{ repo, repos[], selection, refs, commits[{ sha, parents, author, email, time, subject, refs }] }`。
+   清环境、10s 超时、48 MiB 输出上限地跑五条只读命令（含 `worktree list`），返回
+   `{ repo, repos[], selection, worktrees, refs, commits[{ sha, parents, author, email, time, subject, refs }] }`。
+   仓库清单是**两级来源**：`git worktree list`（同一个仓库的各个工作树，各带自己的分支）＋
+   扫盘（工作区里的独立仓库），逐项标 `kind` 区分。
 3. 浏览器半用**单趟**扫描把 `--topo-order` 的提交分到泳道，再在虚拟列表下画 SVG 曲线。
 
 布局函数与几何构造是纯函数，挂在插件返回值的 `internals` 上，测试用 `vm` 加载 bundle 直接驱动，
@@ -133,8 +143,12 @@ test/             零依赖测试（node scripts/test.mjs 一把跑完）
   如实说明（而不是假装清单就是全的）；解决办法是把扫描层数调小。显然不会住着"想单独画的仓库"
   的目录（`node_modules`、`target`、`.venv`、构建产物…）不向下递归——但每个仍会 stat 一次，
   所以一个恰好叫 `build` 的仓库不会被漏掉。
-- **下拉里只会出现从工作区够得到的仓库**：工作区自身、它里面的、以及把它包住的那个。别的路径
-  即使浏览器点名，宿主也会拒绝；并且会用 `rev-parse` 复核它确实是仓库根。
+- **下拉里只会出现从工作区够得到的仓库**：工作区自身、它里面的、把它包住的那个，以及
+  **工作区所属仓库的工作树**（以 `git worktree list` 为准）。别的路径即使浏览器点名，宿主也会
+  拒绝；并且会用 `rev-parse` 复核它确实是仓库根。
+- **每个工作树各读各的**：`git status` 与 `git log` 都是按工作树算的，所以每个工作树显示自己的
+  分支、自己的未提交改动、自己的 `HEAD`；页面从不把两个工作树合成一份。
+  目录已不在的（`prunable`）与裸仓库不列出，只在提示里给出条数。
 - **搜索不过滤图**（理由见特性一节）。
 - **泳道配色**由 DSH 主题令牌 + `color-mix()` 派生；不支持 `color-mix()` 的浏览器退化为四个主题状态色循环。
 - **读持久化实现细节只是兜底**：`storages/workspace.json` 与 `sessions/` 是会话/工作区服务都拿不到时的
@@ -235,6 +249,19 @@ ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js
     所以「改成重定向」也不安全。正确做法是**两个都不设**，让 git 自己找系统配置；
     要防凭据泄漏就白名单化**环境变量**（本来就在做）。核对办法：把计数与
     `git diff --numstat` 逐行比。
+20. **关联工作树对任何文件系统扫盘都是隐形的**。`git worktree add` 把工作树放在你指定的任何
+    位置——常见的就是主工作树的**兄弟目录**，两者之间唯一的联系是那边一行 `.git` **文件**
+    （`gitdir: …/.git/worktrees/<name>`）。按目录往下扫既找不到它、也得不到任何"它存在"的线索；
+    而在它里面跑 `rev-parse --show-toplevel` 得到的是**它自己**，所以"在不在工作区里 / 包不包住
+    工作区"两个方向都是 false。要问 `git worktree list`——而且必须问**宿主自己选定**的那个仓库，
+    **绝不能问正在被校验的那个路径**：`worktree list` 至少会列出被问的那个仓库自己，
+    拿申请者去问等于让它自己给自己签通行证，围栏会当场失效（第一版就是这么写的，
+    `test/route.test.cjs` 的「工作区之外的仓库必须被拒」当场变红）。
+21. **`worktree list --porcelain -z` 用两个 NUL 分隔记录、单个 NUL 分隔字段**。路径是绝对路径、
+    正斜杠，且 `-z` 下**不加引号**（含空格的路径原样输出），所以拿到的路径仍必须规范化后再比较。
+    可选行有 `detached`（此时**没有** `branch` 行）、`locked`、`prunable <原因>`、`bare`；
+    后两者可能**带原因**，判据要按词匹配而不是整行相等。`locked` 只表示"不能 remove"——
+    内容完全可读，必须照常列出；`prunable` 表示目录已经不在，必须剔除。
 
 ## 许可
 

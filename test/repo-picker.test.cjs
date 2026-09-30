@@ -25,7 +25,7 @@ function fakeStorage() {
 async function main() {
   const storage = fakeStorage()
   const internals = loadInternals({ localStorage: storage })
-  const { repoSuffix, repoPicker, readSavedRepo, saveRepo, constants } = internals
+  const { repoSuffix, repoOptionLabel, repoPicker, readSavedRepo, saveRepo, constants } = internals
 
   // ── 下拉项后缀 ───────────────────────────────────────────────────────────
   assert.strictEqual(repoSuffix({ root: 'D:\\ws', rel: '', outside: false }), '工作区根')
@@ -48,6 +48,46 @@ async function main() {
     repoSuffix({ root: '/home/me/proj', rel: '../proj', outside: true }),
     '…/me/proj',
     '走 POSIX 分隔符也一样',
+  )
+
+  // ── 下拉项的整行文案 ─────────────────────────────────────────────────────
+  // 关联工作树（kind: 'worktree'）显示**分支**而不是路径：同一个仓库的各个工作树常常
+  // 就在同一个父目录下、名字只差一个后缀 —— 路径的区分度很低，而分支几乎必然不同。
+  assert.strictEqual(
+    repoOptionLabel({ root: 'D:\\ws', rel: '', outside: false, name: 'ws', kind: 'repo' }),
+    'ws · 工作区根',
+    '普通仓库（含嵌套仓库）维持原样',
+  )
+  assert.strictEqual(
+    repoOptionLabel({ root: 'D:\\a\\proj', rel: '..\\..', outside: true, name: 'proj', kind: 'worktree', branch: 'feat/x', main: false }),
+    'proj · feat/x',
+    '关联工作树要显示它自己的分支 —— 那才是人在这个下拉里要找的东西',
+  )
+  assert.strictEqual(
+    repoOptionLabel({ root: 'D:\\a\\proj', rel: '', outside: false, name: 'proj', kind: 'worktree', branch: 'main', main: true }),
+    'proj · main（主工作树）',
+    '主工作树要标出来，否则"哪个是主工作区"只能靠猜',
+  )
+  assert.strictEqual(
+    repoOptionLabel({ root: 'D:\\a\\det', rel: '..\\det', outside: true, name: 'det', kind: 'worktree', branch: null, detached: true, head: 'abcdef1234567890', main: false }),
+    'det · 分离头 abcdef12',
+    '分离头的工作树没有分支名：用短 sha 顶替，比印一遍与名字重复的路径有用',
+  )
+  assert.strictEqual(
+    repoOptionLabel({ root: 'D:\\a\\det', rel: '..\\det', outside: true, name: 'det', kind: 'worktree', branch: null, detached: true, head: null, main: false }),
+    'det · …/a/det',
+    '连 sha 都拿不到时才退回路径后缀',
+  )
+  assert.strictEqual(
+    repoOptionLabel({ root: 'D:\\a\\lk', rel: '..\\lk', outside: true, name: 'lk', kind: 'worktree', branch: 'b/z', locked: true, main: false }),
+    'lk · b/z（已锁定）',
+    '被 lock 的工作树内容可读，标记出来免得被当成坏了',
+  )
+  // 旧宿主不带 kind（前后端版本错位）：必须退回老文案，不能显示成空或崩。
+  assert.strictEqual(
+    repoOptionLabel({ root: 'D:\\ws', rel: '', outside: false, name: 'ws' }),
+    'ws · 工作区根',
+    'kind 缺席时要退回老行为（宿主半与浏览器半会先后升级）',
   )
 
   // ── 按工作区记忆 ─────────────────────────────────────────────────────────

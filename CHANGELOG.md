@@ -6,6 +6,73 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-30
+
+### Added
+
+- **Every working tree of the repository, including the linked ones outside the workspace.** A
+  repository can have more than one working tree (`git worktree add`), each with its own branch
+  and its own uncommitted changes. They can live **anywhere** — measured on this machine, the
+  main working tree and its linked one are *sibling* directories, and the linked one's `.git` is
+  a one-line **file** pointing back at `.git/worktrees/<name>`. Filesystem scanning can never
+  find them, so the page now asks git itself (`git worktree list --porcelain -z`) and lists them
+  next to the main working tree, each labelled with **its own branch**.
+  - The picker's label for a working tree is its branch, not its path: two working trees of one
+    repository typically sit in the same parent directory with names that differ by a suffix —
+    the paths barely distinguish them, while the branches always do. The main working tree,
+    detached heads (shown as `detached <short sha>`), and locked working trees are marked.
+  - A workspace that *is* a linked working tree now also offers the main one — before this
+    release the picker held exactly one entry and the main working tree was unreachable.
+  - Stale entries (`prunable`: the directory is gone) and bare repositories are never listed; a
+    notice says how many were skipped, so "I have 5 working trees but the page shows 4" is never
+    a silent discrepancy.
+- **`lib/worktrees.js`** — argv construction and parsing as pure functions, importable and
+  testable outside DSH, like `lib/git-read.js` and `lib/changes.js`.
+
+### Fixed
+
+- **Naming a working tree of the same repository was refused, and the page blamed the wrong
+  thing.** The fence only allowed the workspace itself, something inside it, or something
+  enclosing it — but a linked working tree is none of those (it is a sibling). The request was
+  silently rejected, the page fell back to the main working tree and said *"the repository you
+  picked is gone"* about a repository that was perfectly fine. The fence now also accepts the
+  working trees **git itself lists for that repository** (see Security), and the notice says what
+  actually happened: `missing`, `prunable`, `not-root` or `out of the allowed range`.
+- **The repository picker vanished whenever the commit-graph request failed.** The list was only
+  read from the `graph` payload, although `changes` carries the same list. It now uses whichever
+  arrived.
+- **The "scan incomplete" notice could point the wrong way.** It always said to *lower* the
+  repository scan depth — but when the depth cap is what truncated the list, lowering it makes
+  the list shorter, not complete. The host had been reporting `reposTruncatedBy`
+  (`repos`/`dirs`/`time`) all along and the client ignored it; the notice is now derived from it.
+
+### Security
+
+- The fence was widened by exactly one rule: a client-supplied repository path is accepted if it
+  appears in `git worktree list` for **the repository the workspace is in**. The list is asked of
+  a host-chosen anchor, never of the path being requested — asking the requested path would let it
+  vouch for itself (an earlier draft did exactly that and `test/route.test.cjs`'s "a repository
+  outside the workspace must be refused" caught it). The existing gates are unchanged: the path
+  must exist, `rev-parse --show-toplevel` must confirm it is itself a repository root, and it must
+  match the listed path after normalization. `prunable` and `bare` entries are excluded from both
+  the list and the allow-set.
+- `lib/worktrees.js` can only ever build `worktree list`; `add`/`remove`/`prune`/`lock`/`move`
+  fail the read-only invariant test.
+
+### Tests
+
+- `test/worktrees.test.cjs` — byte-level parsing of real `-z` output (spaces in paths, detached,
+  locked, prunable, bare, non-ASCII), the read-only invariant, and an end-to-end run against six
+  real working-tree shapes in a throwaway repository: the outside working tree is accepted and
+  drawn with its own branch, an unrelated repository is still refused, the reverse direction
+  (workspace *is* a linked working tree → the main one is offered and switchable), per-working-tree
+  state isolation (a file created in one is invisible to the other), and the single-working-tree
+  repository behaving exactly as before. Verified to have teeth by mutation: dropping the
+  working-tree allowance, dropping the `prunable` filter, dropping the `kind`/`branch` fields, and
+  collapsing the rejection reasons each turn it red.
+- `test/repo-picker.test.cjs` — the picker label for branch / main / detached / locked working
+  trees, and the old behaviour when an older host sends no `kind` (version skew is normal here).
+
 ## [0.3.0] - 2026-09-30
 
 ### Added
@@ -170,6 +237,7 @@ where it had been running against DSH `0.1.7-rc.2` and `dsh-better-sidebar` 0.21
 - Three zero-dependency test files: parsers, lane layout (driven through a `vm`-loaded bundle),
   and an end-to-end route test against a throwaway repository under the system temp directory.
 
-[Unreleased]: https://github.com/AFunDog/dsh-sidebar-git-graph/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/AFunDog/dsh-sidebar-git-graph/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/AFunDog/dsh-sidebar-git-graph/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AFunDog/dsh-sidebar-git-graph/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AFunDog/dsh-sidebar-git-graph/releases/tag/v0.1.0
