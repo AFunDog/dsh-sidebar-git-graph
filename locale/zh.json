@@ -1,1 +1,1 @@
-{ "meta": { "title": "Git 图谱", "description": "侧边栏「Git 图谱」页：分支/合并的提交关系图（只读路由）。" } }
+{ "meta": { "title": "Git 图谱", "description": "侧边栏「Git 图谱」页：分支/合并的提交关系图与工作树改动（只读）。装了会话 worktree 插件时跟随该会话的标签。" } }
