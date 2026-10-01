@@ -43,6 +43,18 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
   silently dropped. Because the list comes from `git worktree list`, it works from any of them —
   standing in a linked working tree also offers you the main one.
 - **Header at a glance** — repository name, current branch, `↑ahead ↓behind`, dirty-file count.
+- **Follows the session's worktree label** — when
+  [`@zeng/dsh-session-worktree`](https://github.com/AFunDog/dsh-session-worktree) is installed
+  and enabled, the page opens on the working tree that session is labelled with, instead of
+  whatever repository the working directory happens to sit in. Which repository wins:
+  **your click in the picker** → **the session's worktree label** → the last repository
+  remembered for this workspace → the repository of the working directory → the first one found.
+  The page says when it is following the label, and says so more loudly when it cannot
+  (a label pointing at a directory that is gone, is not a repository root, or is outside what
+  this page may read) — it never silently swaps in a different repository. No detection code is
+  needed: the label is published as a host service that disappears along with the plugin when it
+  is disabled, so "is it enabled" is one lookup. Uninstalling or disabling that plugin restores
+  the previous behaviour exactly.
 - **Commit search** — highlights matches and steps through them (the graph stays intact; it
   never re-lays-out a filtered list).
 - **Details on click** — full sha, author + email, absolute time, parents, participating refs.
