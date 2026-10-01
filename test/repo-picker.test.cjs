@@ -226,6 +226,11 @@ async function main() {
     assert.strictEqual(isNewHost({}), false, '旧宿主没有这个字段')
     assert.strictEqual(isNewHost(null), false)
     assert.strictEqual(isNewHost('x'), false)
+    // ⚠️ 这个判据**必须真的被页面用到**，否则「新前端 + 旧宿主」时跟随标签会静默不生效，
+    // 而页面看起来一切正常（2026-10-01 首版实现就是定义了却没调用）。
+    const bundle = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'lib', 'client.js'), 'utf8')
+    assert.ok(/if \(value !== undefined && !isNewHost\(value\)\)/.test(bundle),
+      'isNewHost 必须在 notices 里被真正调用（不能只是导出给人看）')
   }
 
   console.log('repo-picker.test.cjs: OK')
