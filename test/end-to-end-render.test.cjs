@@ -92,9 +92,10 @@ function renderWith(internals, changesValue, diffTarget) {
     refreshing: false,
   }
   const values = [graphState, { status: 'ready', value: changesValue, refreshing: false }]
-  // 索引 2..9 占位（scope/query/matchAt/selected/scrollTop/viewHeight/repoChoice/folded），
-  // 索引 10 是 diffTarget。
-  for (let i = 0; i < 8; i += 1) values.push(undefined)
+  // 索引 2..10 占位（scope/query/matchAt/selected/scrollTop/viewHeight/repoChoice/
+  // repoHint/folded），索引 11 是 diffTarget。
+  // ⚠️ 加/删 GraphView 里的 useState 就要同步改这里的长度（见 render-smoke.test.cjs 的说明）。
+  for (let i = 0; i < 9; i += 1) values.push(undefined)
   values.push(diffTarget === undefined ? undefined : diffTarget)
   const loaded = loadInternals({ react: makeReact(values) })
   return textOf(loaded.GraphView({

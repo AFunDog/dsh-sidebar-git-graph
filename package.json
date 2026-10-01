@@ -1,7 +1,7 @@
 {
   "name": "@zeng/dsh-sidebar-git-graph",
-  "version": "0.4.0",
-  "description": "DSH right-sidebar page: a read-only Git commit graph plus a VS Code-style working-tree Changes area (staged/unstaged, inline diffs), for every working tree of the repository. Works with or without dsh-better-sidebar.",
+  "version": "0.5.0",
+  "description": "DSH right-sidebar page: a read-only Git commit graph plus a VS Code-style working-tree Changes area (staged/unstaged, inline diffs), for every working tree of the repository. Follows the session's worktree label when @zeng/dsh-session-worktree is installed. Works with or without dsh-better-sidebar.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

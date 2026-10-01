@@ -178,6 +178,56 @@ async function main() {
     '浏览器半身与宿主半身的默认扫描层数必须一致，否则「没设置过」的两个人看到的清单不一样',
   )
 
+  // ── 会话 worktree 联动的提示文案（2026-10-01）─────────────────────────────
+  //
+  // 这两条都是"不说就会让人误会"的话：
+  //   - 跟随标签换了仓库 → 用户会奇怪"我没选这个啊"；
+  //   - 有标签但用不了 → **最糟的失败模式**：用户以为标签生效了，
+  //     实际画的是完全不同的仓库。必须说清是哪一种失败。
+  {
+    const { tagNotice, tagNoticeCopy, isNewHost } = internals
+
+    // 没跟随：不出声。
+    // ⚠️ 用 `.kind` 比较而不是 `deepStrictEqual(…, {kind:'none'})`：这个对象是**跨模块
+    // 边界**回来的（客户端 bundle 里的字面量），原型不同，deepStrictEqual 会判不等。
+    assert.strictEqual(tagNotice(undefined).kind, 'none')
+    assert.strictEqual(tagNotice(null).kind, 'none')
+    assert.strictEqual(tagNotice({ requested: null, source: 'cwd' }).kind, 'none')
+    assert.strictEqual(tagNoticeCopy({ kind: 'none' }, 'repo'), '')
+
+    // 跟随了：说清跟的是哪个路径，并告诉用户怎么改回固定。
+    const followed = tagNotice({ tagApplied: true, tagged: 'D:/ws/vendor/kit', tagReason: null })
+    assert.strictEqual(followed.kind, 'followed')
+    assert.strictEqual(followed.tagged, 'D:/ws/vendor/kit')
+    const followedCopy = tagNoticeCopy(followed, 'repo')
+    assert.ok(followedCopy.includes('D:/ws/vendor/kit'), `要说清跟的是哪个：${followedCopy}`)
+    assert.ok(followedCopy.includes('下拉'), '要告诉用户怎么改回固定画一个仓库')
+
+    // 跟随了但 tagged 是空串（旧宿主 / 脏数据）→ 不出声，而不是说一句没有主语的废话。
+    assert.strictEqual(tagNotice({ tagApplied: true, tagged: '' }).kind, 'none')
+
+    // 被拒：三种原因各有各的说法，且都要提到"已改画"。
+    for (const [reason, needle] of [['missing', '不在'], ['not-root', '不是仓库根'], ['fenced', '可访问']]) {
+      const rejected = tagNotice({ tagApplied: false, tagged: 'D:/gone', tagReason: reason })
+      assert.strictEqual(rejected.kind, 'rejected')
+      assert.strictEqual(rejected.reason, reason)
+      const copy = tagNoticeCopy(rejected, 'repo')
+      assert.ok(copy.includes(needle), `${reason} 的说法要准确：${copy}`)
+      assert.ok(copy.includes('已改画'), `${reason} 必须说明改画了哪个：${copy}`)
+      assert.ok(copy.includes('D:/gone'), `${reason} 要说清标签指的是哪里：${copy}`)
+    }
+    // 不认识的原因也要说人话（不能漏出 `undefined`）。
+    const unknown = tagNoticeCopy(tagNotice({ tagApplied: false, tagged: '', tagReason: 'weird' }), 'repo')
+    assert.ok(unknown.includes('用不了'), unknown)
+    assert.ok(!unknown.includes('undefined'), unknown)
+
+    // 形状标记：只有 schema:2 才算新宿主。
+    assert.strictEqual(isNewHost({ schema: 2 }), true)
+    assert.strictEqual(isNewHost({}), false, '旧宿主没有这个字段')
+    assert.strictEqual(isNewHost(null), false)
+    assert.strictEqual(isNewHost('x'), false)
+  }
+
   console.log('repo-picker.test.cjs: OK')
 }
 

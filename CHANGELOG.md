@@ -6,6 +6,29 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-01
+
+### Added
+
+- **The page can follow the session's worktree label.** When `@zeng/dsh-session-worktree` is
+  installed and enabled, the graph opens on the working tree that session is labelled with,
+  instead of always the repository the working directory happens to be in. "Is it enabled" needs
+  no detection code: the label is published as a host service (`ctx.get('sessionWorktree')`),
+  which cordis returns as `undefined` when the plugin is absent or disabled — including when it
+  is switched off later, since the service disappears with its fiber.
+  - Repository priority is now **your click > session worktree label > last remembered >
+    repository of the working directory > first scanned repository**.
+  - ⚠️ The last-remembered repository had to be **demoted from a request to a hint**. It used to
+    be sent as `repo`, which always won — so once you had picked anything from the dropdown, the
+    label could never apply. It is now sent as `repoHint`.
+  - The page **says which of these it followed**, and says so louder when it could not: a label
+    pointing outside what the page may read is reported with its reason rather than silently
+    swapped for a different repository.
+  - The label is fenced exactly like your own click (the directory must exist, be a repository
+    root, and be related to the workspace or be a working tree of the workspace's repository).
+    Another plugin's data is not more trustworthy than the browser's.
+- Payloads now carry `schema: 2`.
+
 ## [0.4.0] - 2026-09-30
 
 ### Added

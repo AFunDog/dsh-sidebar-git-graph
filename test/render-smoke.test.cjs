@@ -25,10 +25,13 @@ function textOf(node) {
 /**
  * 造一个 react 桩：`useState` 依次弹出 `values`，其余 hook 直通。
  *
- * `values` 的顺序必须与 GraphView 里 useState 的调用顺序一致：
+ * ⚠️ `values` 的顺序必须与 GraphView 里 useState 的**调用顺序**一致，改那边的
+ * useState 就要同步改这里（与下面 `tail` 的长度）——否则占位会整体错位一格，
+ * 表现为莫名其妙的断言失败（2026-10-01 加 `repoHint` 时就踩了一次）。
+ *
  *   [0] state(graph 请求结果)      [1] changesState(改动请求结果)
  *   [2] scope  [3] query  [4] matchAt  [5] selected  [6] scrollTop  [7] viewHeight
- *   [8] repoChoice  [9] folded  [10] diffTarget
+ *   [8] repoChoice  [9] repoHint  [10] folded  [11] diffTarget
  */
 function makeReact(values) {
   let index = 0
@@ -213,9 +216,9 @@ function main() {
   // ── 展开的 diff：四种非文本态都要能渲染 ──────────────────────────────────
   {
     // useState 顺序：0 state、1 changesState、2 scope、3 query、4 matchAt、5 selected、
-    // 6 scrollTop、7 viewHeight、8 repoChoice、9 folded、10 diffTarget。
-    // 所以给索引 2..9 各留一个占位（8 个），diffTarget 才是第 11 项。
-    const tail = Array.from({ length: 8 }, () => undefined)
+    // 6 scrollTop、7 viewHeight、8 repoChoice、9 repoHint、10 folded、11 diffTarget。
+    // 所以给索引 2..10 各留一个占位（9 个），diffTarget 才是第 12 项。
+    const tail = Array.from({ length: 9 }, () => undefined)
     const kinds = [
       ['loading', { status: 'loading', section: 'unstaged', path: 'a/b.js' }],
       ['error', { status: 'error', section: 'unstaged', path: 'a/b.js', error: { code: 'git-failed', message: 'boom' } }],
