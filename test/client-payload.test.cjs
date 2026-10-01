@@ -159,6 +159,45 @@ function settle() {
   return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
+/** 把元素树里的文本摊出来（与 render-smoke 的 textOf 同款，但不依赖它的私有实现）。 */
+function textOf(node) {
+  if (node === null || node === undefined || node === false) return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  return textOf(node.children)
+}
+
+/**
+ * 渲染 GraphView 并返回**页面上的文本**（用于断言提示语真的出现了）。
+ *
+ * 与 `renderGraphView` 的区别：这个跑 effect（所以取数会发生），但断言的是渲染结果。
+ * @param options - `{ graphPayload }`。
+ * @returns `{ text }`。
+ */
+function renderAndDump(options) {
+  const graphPayload = options.graphPayload
+  const values = [
+    { status: 'ready', value: graphPayload, refreshing: false },
+    { status: 'ready', value: changesValue(), refreshing: false },
+  ]
+  for (let i = 0; i < 6; i += 1) values.push(undefined)
+  values.push(undefined)   // 8 repoChoice
+  values.push(undefined)   // 9 repoHint
+
+  const internals = loadInternals({
+    fetch: async () => ({ ok: true, json: async () => ({ result: { ok: true, value: graphPayload } }) }),
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    react: makeReact(values),
+  })
+  const tree = internals.GraphView({
+    ctx: { get: () => undefined, logger: { info() {}, warn() {} } },
+    sessionId: 'sess-1',
+    cwd: 'D:/ws',
+    visible: true,
+  })
+  return { text: textOf(tree) }
+}
+
 async function main() {
   // ── ① 真正的重点：GraphView 自己发出去的载荷 ──────────────────────────────
   //
@@ -243,7 +282,24 @@ async function main() {
     assert.strictEqual(scoped.readSavedRepo('D:/ws-c'), undefined)
   })
 
-  // ── ⑤ requestHost 仍是薄转发（三处 method 共用同一信封）─────────────────
+  // ── ⑤ 旧宿主：页面必须**说出来**，而不是让用户以为功能没用 ────────────────
+  //
+  // 这正是「宿主半还没重启」时的真实状态。旧宿主对新增字段一无所知，
+  // 跟随标签**永远不会生效**，而页面看起来一切正常。
+  test('⚠️ 旧宿主载荷（无 schema）⇒ 渲染出「要重启」的提示', () => {
+    const oldPayload = graphValue()
+    delete oldPayload.schema
+    const { text } = renderAndDump({ graphPayload: oldPayload })
+    assert.ok(text.includes('宿主半还是旧版'), `旧宿主必须给出提示；实际文本片段：${text.slice(0, 300)}`)
+    assert.ok(text.includes('重启'), '提示里要说明怎么办')
+  })
+
+  test('新宿主载荷（schema: 2）⇒ 不出现那条提示（不能对正常状态报警）', () => {
+    const { text } = renderAndDump({ graphPayload: graphValue() })
+    assert.ok(!text.includes('宿主半还是旧版'), '新宿主不该有这条提示')
+  })
+
+  // ── ⑥ requestHost 仍是薄转发（三处 method 共用同一信封）─────────────────
   test('requestHost：ok / 错误码 / 网络异常三种回法都对', async () => {
     const ok = loadInternals({ fetch: async () => ({ ok: true, json: async () => ({ result: { ok: true, value: { x: 1 } } }) }) })
     const okOut = await ok.requestHost('graph', {})
