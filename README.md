@@ -43,6 +43,12 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
   silently dropped. Because the list comes from `git worktree list`, it works from any of them —
   standing in a linked working tree also offers you the main one.
 - **Header at a glance** — repository name, current branch, `↑ahead ↓behind`, dirty-file count.
+- **Tells you when its picture of the remote is behind** — the graph is drawn from your **local**
+  repository and this page never touches the network that is the read-only promise. So a merge
+  that just happened *on the remote* is invisible here until someone runs `git fetch`. Rather than
+  leave you wondering whether the graph is wrong, the page says how long ago the repository last
+  fetched (past 6 hours), and which local branches are behind their upstream. A repository that
+  has never been fetched is reported as having no remote instead of as stale.
 - **Follows the session's worktree label** — when
   [`@zeng/dsh-session-worktree`](https://github.com/AFunDog/dsh-session-worktree) is installed
   and enabled, the page opens on the working tree that session is labelled with, instead of
@@ -284,6 +290,47 @@ Traps that cost real time here, in the order they bite:
     and `locked`/`prunable` may carry a reason, so compare for the word, not for equality. `locked`
     means only "not removable": its contents are perfectly readable and it must stay listed;
     `prunable` means the directory is gone and it must not be.
+14. **A branch curve's destination lane is not automatically "handled".** The lane layout emits,
+    per row, the curves that fork/merge plus the lanes that merely pass through. It is tempting to
+    mark every curve endpoint as "this lane is already drawn on this row" — but a fork curve has
+    two very different destinations:
+    - the lane was **opened by this row** (the parent was not in flight): nothing arrives from
+      above, so a through-line here would draw a stub hanging in mid-air — omit it;
+    - the lane was **already waiting** for that parent (another commit put it in flight earlier):
+      a line arrives from the row above **and** must continue below — the through-line is
+      mandatory, and skipping it deletes exactly one row's worth of that lane.
+
+    The connector curve still gets drawn in the second case, so the row does not look empty; it
+    looks like the line was erased under it. On this machine that was **40 seams across 8
+    repositories** (3109 seams scanned) before the fix. The invariant is cheap to assert: for every
+    row boundary, the set of x positions carrying ink on the lower edge of row *r* must equal the
+    set on the upper edge of row *r+1*. `test/graph-continuity.test.cjs` does exactly that, over
+    hand-written shapes and 300 seeded random DAGs.
+15. **`pointer-events: none` does not stop an element from being painted over.** The graph SVG is
+    the scroll-sizer's first child, and every commit row is an absolutely-positioned opaque box
+    later in DOM order. Rows paint after the SVG, so any row background the theme actually fills in
+    — `:hover`, or `[data-selected="true"]` — hides the lane column for that row. The SVG needs an
+    explicit `z-index` (and its positioned parent), which is why `test/graph-continuity.test.cjs`
+    also pins that stylesheet contract; hit-testing stays correct because the SVG is still
+    `pointer-events: none`, so clicking the graph column still selects the row.
+16. **"I saw it merge, but the graph doesn't show it" is a fetch-staleness question, not a drawing
+    bug.** The graph is local by design, so the honest answer needs the **age of the local
+    repository's knowledge of the remote**, and that age is not derivable from refs — a local
+    branch and its *stale* remote-tracking ref point at the **same** commit, so the behind-count is
+    `0` while the remote has moved on ten commits. Stat `FETCH_HEAD` instead, and stat it in
+    **two** places: measured on one machine, a linked working tree had its own
+    `.git/worktrees/<name>/FETCH_HEAD` at 10:36 while the main working tree's was at 11:10 — read
+    only one and you will call a fresh repository stale while the user sits in the other working
+    tree. Take the newer of the two. Also note that overwriting an existing ref does **not** bump
+    the parent directory's mtime (`refs/remotes` sat at 09-20 while `origin/develop` was 10-02), so
+    never stat the directory; and a repository that has never fetched has no `FETCH_HEAD` at all,
+    which means "no remote", not "stale".
+17. **A payload version check must be `>=`, never `===`.** `isNewHost` compared `schema === 2`;
+    adding one field and bumping to `3` made the browser half classify a **newer** host as old and
+    advise the user to restart — the exact opposite of the truth, and the kind of bug that only
+    shows up on the one machine that has both halves at different versions. Judge a specific
+    field's presence by that field (as `freshnessNotice` does), and keep the general version check
+    monotonic.
 
 ## License
 

@@ -104,7 +104,7 @@ async function main() {
     assert.strictEqual(out.value.selection.source, 'cwd')
     assert.strictEqual(out.value.selection.tagApplied, false)
     assert.strictEqual(out.value.selection.tagged, null, '没有标签时 tagged 必须是 null')
-    assert.strictEqual(out.value.schema, 2, '载荷要带形状版本')
+    assert.ok(out.value.schema >= 2, '载荷要带形状版本（>= 2）')
   }
 
   // ── 档 2：标签生效（用户没手点）─────────────────────────────────────────────
@@ -214,7 +214,7 @@ async function main() {
     const { handleChanges } = host.internals
     const out = await handleChanges(fakeCtx(), { cwd: ws })
     assert.strictEqual(out.ok, true)
-    assert.strictEqual(out.value.schema, 2)
+    assert.ok(out.value.schema >= 2)
   }
 
   console.log(`session-worktree-link.test.cjs: OK (ws=${ws})`)

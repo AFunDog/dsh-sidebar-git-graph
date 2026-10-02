@@ -221,9 +221,13 @@ async function main() {
     assert.ok(unknown.includes('用不了'), unknown)
     assert.ok(!unknown.includes('undefined'), unknown)
 
-    // 形状标记：只有 schema:2 才算新宿主。
+    // 形状标记：schema >= 2 就算新宿主。
     assert.strictEqual(isNewHost({ schema: 2 }), true)
+    assert.strictEqual(isNewHost({ schema: 3 }), true, 'schema 向后兼容地递增，>= 2 都算新宿主')
+    assert.strictEqual(isNewHost({ schema: 99 }), true, '将来再加字段不该把新宿主误判成旧宿主')
+    assert.strictEqual(isNewHost({ schema: 1 }), false, 'schema 1（更早的预览版）没有本插件要的字段')
     assert.strictEqual(isNewHost({}), false, '旧宿主没有这个字段')
+    assert.strictEqual(isNewHost({ schema: '2' }), false, '字符串不算（宿主给的是数字）')
     assert.strictEqual(isNewHost(null), false)
     assert.strictEqual(isNewHost('x'), false)
     // ⚠️ 这个判据**必须真的被页面用到**，否则「新前端 + 旧宿主」时跟随标签会静默不生效，

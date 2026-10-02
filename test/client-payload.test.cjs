@@ -299,7 +299,99 @@ async function main() {
     assert.ok(!text.includes('宿主半还是旧版'), '新宿主不该有这条提示')
   })
 
-  // ── ⑥ requestHost 仍是薄转发（三处 method 共用同一信封）─────────────────
+  // ── ⑥ 远端新鲜度：把"本页从不联网"这件事说出来 ────────────────────────────
+  //
+  // 2026-10-02 用户看到智能体说「已把 feat/x 合并到 develop」，图上却没有 → 怀疑图坏了。
+  // 真相是那次合并发生在**远端**，本地还没 fetch。缺了这句话，用户无从区分
+  // 「图错了」与「本地还没取回」。
+  {
+    const { freshnessNotice } = loadInternals()
+    const now = 1_800_000_000
+
+    test('陈旧 ⇒ 说出来 + 说清怎么办；并明确"本页从不联网"', () => {
+      const out = freshnessNotice({
+        freshness: { lastFetchAt: now - 8 * 60 * 60, ageSeconds: 8 * 60 * 60, stale: true, never: false },
+        staleBranches: [],
+        now,
+      })
+      assert.strictEqual(out.kind, 'stale')
+      assert.ok(out.copy.includes('从不联网'), `要说清本页不联网：${out.copy}`)
+      assert.ok(out.copy.includes('git fetch'), '要给出可执行的动作')
+      assert.ok(out.copy.includes('8 小时前'), `要给出具体多久：${out.copy}`)
+    })
+
+    test('⚠️ 关键一类：本地分支与上游**指向同一提交**（behind 0），只有取回时间能发现', () => {
+      // 用户报的那个案例正是这样：本地 develop 与过期的 origin/develop 都在 dc53dc6，
+      // 所以 behind 是 0 —— 按"落后才提示"的写法这里一个字都不会说。
+      const out = freshnessNotice({
+        freshness: { lastFetchAt: now - 30 * 60 * 60, ageSeconds: 30 * 60 * 60, stale: true, never: false },
+        staleBranches: [],
+        now,
+      })
+      assert.strictEqual(out.kind, 'stale', '没有落后分支时，取回时间陈旧必须**单独**成立')
+      assert.ok(out.copy !== '')
+    })
+
+    test('本地分支落后上游 ⇒ 报出来（这是本地就知道的，不需要联网）', () => {
+      const out = freshnessNotice({
+        freshness: { lastFetchAt: now - 60, ageSeconds: 60, stale: false, never: false },
+        staleBranches: [{ name: 'develop', upstream: 'origin/develop', behind: 10, ahead: 0 }],
+        now,
+      })
+      assert.strictEqual(out.kind, 'behind')
+      assert.ok(out.copy.includes('develop'), out.copy)
+      assert.ok(out.copy.includes('10'), `要说清落后多少：${out.copy}`)
+    })
+
+    test('两种证据同时成立 ⇒ 两句都要说', () => {
+      const out = freshnessNotice({
+        freshness: { lastFetchAt: now - 30 * 60 * 60, ageSeconds: 30 * 60 * 60, stale: true, never: false },
+        staleBranches: [{ name: 'develop', upstream: 'origin/develop', behind: 10, ahead: 0 }],
+        now,
+      })
+      assert.strictEqual(out.kind, 'both')
+      assert.ok(out.copy.includes('从不联网') && out.copy.includes('落后'))
+    })
+
+    test('⚠️ 从没取回过（never）不提示：那不是"旧"，是没有远端可言', () => {
+      const out = freshnessNotice({
+        freshness: { lastFetchAt: null, ageSeconds: null, stale: false, never: true },
+        staleBranches: [],
+        now,
+      })
+      assert.strictEqual(out.kind, 'none')
+      assert.strictEqual(out.copy, '')
+    })
+
+    test('一切正常 / 字段缺失 / 旧宿主 ⇒ 一个字都不说（不能对正常状态报警）', () => {
+      const cases = [
+        { freshness: { lastFetchAt: now - 30, ageSeconds: 30, stale: false, never: false }, staleBranches: [], now },
+        { freshness: undefined, staleBranches: undefined, now },
+        { freshness: null, staleBranches: null, now },
+        undefined,
+        {},
+      ]
+      for (const input of cases) {
+        const out = freshnessNotice(input)
+        assert.strictEqual(out.copy, '', `不该提示：${JSON.stringify(input)} → ${out.copy}`)
+      }
+    })
+
+    test('落后分支数量多于 1 时给出条数，且永不出现 undefined', () => {
+      const out = freshnessNotice({
+        freshness: { lastFetchAt: now - 30, ageSeconds: 30, stale: false, never: false },
+        staleBranches: [
+          { name: 'develop', upstream: 'origin/develop', behind: 10, ahead: 0 },
+          { name: 'feature/x', upstream: 'origin/feature/x', behind: 3, ahead: 0 },
+        ],
+        now,
+      })
+      assert.ok(out.copy.includes('2 个本地分支'), out.copy)
+      assert.ok(!out.copy.includes('undefined'), out.copy)
+    })
+  }
+
+  // ── ⑦ requestHost 仍是薄转发（三处 method 共用同一信封）─────────────────
   test('requestHost：ok / 错误码 / 网络异常三种回法都对', async () => {
     const ok = loadInternals({ fetch: async () => ({ ok: true, json: async () => ({ result: { ok: true, value: { x: 1 } } }) }) })
     const okOut = await ok.requestHost('graph', {})

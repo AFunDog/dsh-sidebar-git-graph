@@ -6,6 +6,65 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The page now says when its picture of the remote is behind.** The graph is drawn from the
+  **local** repository and this plugin never touches the network — that is the read-only promise.
+  A merge that just happened *on the remote* is therefore invisible until someone runs
+  `git fetch`, which is exactly how a user came to suspect the graph was broken after an agent
+  reported merging a branch into `develop`. The page now explains itself instead of leaving that
+  ambiguity, from two independent pieces of evidence:
+  - **how long ago the repository last fetched** — the load-bearing one. In the reported case the
+    local branch and its **stale** remote-tracking ref pointed at the *same* commit, so a
+    behind-count was `0`; only fetch age could reveal it. The host stats `FETCH_HEAD` in the
+    working tree's own git dir **and** the common one and takes the newer, because a linked
+    working tree has its own file (measured: 11:10 vs 10:36 on one machine) and you may well fetch
+    in the main working tree and read the graph in a linked one.
+  - **which local branches are behind their upstream** — known locally, no network needed.
+  - Threshold is 6 hours. A repository that has **never** fetched is reported as having no remote
+    rather than as stale — those are different facts.
+  - `%(upstream:track)` is now parsed, including the `[gone]` case (the upstream ref was deleted),
+    which is *not* the same as "no upstream configured".
+  - `test/freshness.test.cjs` builds a real repository and a real bare remote, makes a real
+    `git fetch`, then moves the timestamps with `utimes` — so the awkward parts (two `FETCH_HEAD`
+    files in a linked working tree, a repository that never fetched) are tested against real git
+    rather than a pure function's idea of it.
+- Payloads now carry `schema: 3`.
+
+### Changed
+
+- **`isNewHost` is now `schema >= 2` instead of `schema === 2`.** Adding a field used to make the
+  browser half classify a *newer* host as old and tell the user to restart — the opposite of the
+  intent. A specific field's presence is judged by that field, never by the schema number.
+
+### Fixed
+
+- **A lane no longer breaks at a row boundary.** When a commit's second (or later) parent was
+  **already** being waited for on another lane, that lane was omitted from the row's through-lines,
+  so the connector that had arrived from the row above simply stopped — one whole row of the lane
+  went missing. The curve was drawn, so the row did not look empty; it looked like the line had
+  been erased underneath it. Measured on this machine: **40 broken seams across 8 repositories**
+  (3109 seams scanned). The smallest shape is only **two rows**: a merge `M` whose parents are
+  `[A, C]` (so `C` goes in flight on a second lane), followed by `A` whose parents are `[B, C]`
+  (so `C` is *already* in flight when `A` names it as a non-first parent).
+  - The distinction that was missing: a branch curve's **destination** lane is either opened by
+    this very row (nothing above it — no through-line, correct) or was already waiting for that
+    parent (a line arrives from above **and** continues below — the through-line is mandatory).
+    Treating both alike is what erased the line.
+  - Regression test: `test/graph-continuity.test.cjs` — asserts the seam invariant on a verbatim
+    reproduction of the reported shape, on seven hand-written shapes, and on 300 seeded random
+    DAGs; it fails on the pre-fix code.
+- **Hovering a row no longer erases the graph on that row.** The SVG is the sizer's first child
+  while every row is an absolutely-positioned, opaque box later in DOM order, so a row's
+  background — from `:hover` **or** from `[data-selected="true"]` — painted over the entire lane
+  column. `pointer-events: none` was already set and does not help: it governs hit-testing, not
+  paint order. The SVG is now raised to `z-index: 1`. Measured on the lane column: **23 of the 24
+  pixels inside the hovered row** were row-background before, **0 of 24** after, while the graph
+  keeps its ink and rows still select when you click the graph column.
+  - `test/graph-continuity.test.cjs` pins the stylesheet contract (SVG has a positive `z-index`,
+    still `pointer-events: none`; `.zgg-sizer` is positioned; `.zgg-row` carries no positive
+    `z-index`).
+
 ## [0.5.0] - 2026-10-01
 
 ### Added
