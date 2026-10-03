@@ -1,8 +1,8 @@
 # AGENTS.md — dsh-sidebar-git-graph
 
 面向智能体与贡献者的工程文档：架构地图、泳道算法不变量、主题令牌核对流程，以及全部踩坑记录。
-产品说明（特性 / 安装 / 设置 / 限制）见 [README.zh.md](README.zh.md)（中文，默认）或
-[README.md](README.md)（English）。
+产品说明（特性 / 安装 / 设置 / 限制）见 [README.md](README.md)（中文，默认）或
+[README.en.md](README.en.md)（English）。
 
 - 语言：中文为主（与仓库其他文档一致）；代码与命令保持原文。
 - 修改本文件时同步核对引用的测试文件名与命令仍然存在。

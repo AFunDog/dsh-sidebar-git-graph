@@ -3,173 +3,142 @@
 [![ci](https://github.com/AFunDog/dsh-sidebar-git-graph/actions/workflows/ci.yml/badge.svg)](https://github.com/AFunDog/dsh-sidebar-git-graph/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A **right-sidebar page for DSH (DeepSeek Harness)** that draws the current session's
-repository as a **branches-and-merges commit graph** — VS Code style: colored lanes,
-bezier curves where branches split and merge, ref chips, per-commit details — with a
-**working-tree Changes area** above it, for **every working tree of the repository**.
+给 **DSH（DeepSeek Harness）** 加一个右侧栏页面：把当前会话的仓库画成**分支/合并关系图**
+（VS Code 风格 —— 彩色泳道、分叉与汇入的贝塞尔曲线、ref 芯片、点开看提交详情），
+并在它上方给出**工作树改动区**。
 
-**Read-only.** It never runs `checkout`, `commit`, `reset`, `rebase`, `fetch`, `push`,
-`add`, `restore` or `worktree add/remove/prune`. The only git commands it runs are `rev-parse`,
-`status`, `for-each-ref`, `log`, `diff` and `worktree list`.
+**只读**：不 checkout、不 commit、不 reset、不 rebase、不 fetch/push、不 add、不 restore、
+不 `worktree add/remove/prune`。
+只跑 `rev-parse`、`status`、`for-each-ref`、`log`、`diff`、`worktree list` 六条命令。
 
-![The Git graph page: colored lanes, ref chips, commit rows](docs/screenshot.png)
+![Git 图谱页面：彩色泳道、ref 芯片、提交行](docs/screenshot.png)
 
-> The screenshot above predates the Changes area and shows the commit graph alone.
+> 上面这张截图拍于「更改」区之前，只显示提交图。
 
-> 中文说明（默认文档）：[README.zh.md](README.zh.md)。
-> Contributing / internals / the full trap list live in [AGENTS.md](AGENTS.md).
+> [English](README.en.md)。参与开发、想了解内部实现或踩坑记录，请看 [AGENTS.md](AGENTS.md)。
 
-## Features
+## 特性
 
-- **Working-tree changes, VS Code style** — a **Changes** and a **Staged Changes** section above
-  the graph (plus **Merge Changes** during a merge), each row carrying its status letter
-  (`M`/`A`/`D`/`R`/`C`/`U`) and its added/deleted line counts. Click a file to expand its diff
-  inline; the sections fold and remember it.
-- **Branch/merge relationships at a glance** — one lane per concurrent line of history, curved
-  connectors where a branch forks or merges back, thicker dots on merge commits, and the HEAD
-  lane emphasized.
-- **Ref chips per commit** — local branch / remote branch / tag, with the current branch filled in
-  the theme's brand color and the theme's matching on-brand foreground.
-- **One workspace, several repositories** — a workspace often holds more than one repository (this
-  project's own checkout has a nested one under `vendor/@zeng/`). The header then grows a picker
-  listing every repository it found; the choice is remembered per workspace. A workspace that is
-  itself only a subdirectory of a repository works too — the enclosing repository is offered as
-  well. Discovery never leaves the workspace: it scans downwards, bounded by depth, directory
-  count, repository count and a time budget.
-- **Every working tree of the repository** — a repository can have several
-  (`git worktree add`), each on its own branch with its own uncommitted changes, and the linked
-  ones usually live **outside** the workspace directory entirely (in the case this feature was
-  built for, they are sibling directories). The picker lists all of them, **each labelled with its
-  own branch**, so you can switch between the main working tree and a linked one and see that
-  working tree's graph and changes. The main working tree, detached heads and locked working trees
-  are marked; working trees whose directory is gone are skipped and counted in a notice rather than
-  silently dropped. Because the list comes from `git worktree list`, it works from any of them —
-  standing in a linked working tree also offers you the main one.
-- **Header at a glance** — repository name, current branch, `↑ahead ↓behind`, dirty-file count.
-- **Tells you when its picture of the remote is behind** — the graph is drawn from your **local**
-  repository and this page never touches the network that is the read-only promise. So a merge
-  that just happened *on the remote* is invisible here until someone runs `git fetch`. Rather than
-  leave you wondering whether the graph is wrong, the page says how long ago the repository last
-  fetched (past 6 hours), and which local branches are behind their upstream. A repository that
-  has never been fetched is reported as having no remote instead of as stale.
-- **Follows the session's worktree label** — when
-  [`@zeng/dsh-session-worktree`](https://github.com/AFunDog/dsh-session-worktree) is installed
-  and enabled, the page opens on the working tree that session is labelled with, instead of
-  whatever repository the working directory happens to sit in. Which repository wins:
-  **your click in the picker** → **the session's worktree label** → the last repository
-  remembered for this workspace → the repository of the working directory → the first one found.
-  The page says when it is following the label, and says so more loudly when it cannot
-  (a label pointing at a directory that is gone, is not a repository root, or is outside what
-  this page may read) — it never silently swaps in a different repository. Uninstalling or
-  disabling that plugin restores the previous behaviour exactly.
-- **Commit search** — highlights matches and steps through them (the graph stays intact; it
-  never re-lays-out a filtered list).
-- **Details on click** — full sha, author + email, absolute time, parents, participating refs.
-- **Virtualized list** — a 2000-commit window still renders only the visible rows; nothing is
-  requested while the page is not the visible tab.
-- **Honest error states** — not a git repository / no `git` on `PATH` / no workspace / trust
-  fence refused / git failed each get their own message instead of a blank page.
-- **Zero dependencies, no build step** — the host half is plain ESM, the browser half is a
-  single hand-written client-bundle file. What you read in `lib/` is what runs.
+- **工作树改动，VS Code 式两段**：图上方的**更改**与**暂存的更改**（合并中还会多出**合并更改**），
+  每行带状态字母（`M`/`A`/`D`/`R`/`C`/`U`）与增删行数；点一行就地展开它的 diff，两段可折叠且记得住。
+- **一眼看清多分支关系**：并发的每条历史线占一条泳道，分叉/汇回处画曲线，合并提交的圆点更大，
+  当前 HEAD 所在泳道更醒目。
+- **每个提交带 ref 芯片**：本地分支 / 远程分支 / 标签；当前分支用主题的品牌色填充，文字用主题里
+  与它配对的那支前景色。
+- **一个工作区，多个仓库**：工作区里同时躺着好几个仓库是常态（本插件自己的 checkout 就在
+  `vendor/@zeng/` 下挂着一个嵌套仓库）。这时头部会长出一个下拉框，列出找到的每个仓库，
+  选择按工作区记忆。工作区自己只是某个仓库的子目录也没问题——外层那个仓库同样会被列出来。
+  发现过程**不会跑出工作区**：只向下扫，且层数、目录数、仓库数、耗时四个闸门都封着。
+- **同一个仓库的每个工作树**：一个仓库可以有多个工作树（`git worktree add`），各有各的分支、
+  各有各的未提交改动，而关联工作树通常**根本不在工作区目录里**（这个功能就是为一对**兄弟目录**
+  的工作树做的）。下拉框把它们全列出来，**每一项标着它自己的分支**，可以自由切换，切换后看到的
+  就是这个工作树自己的图谱与改动。主工作树、分离头、被 lock 的工作树都有标记；目录已经不在的
+  工作树不列出、但会在提示里给出条数，不会悄悄少一个。清单来自 `git worktree list`，
+  所以从**任意一个**工作树出发都能看到全集——站在关联工作树里，主工作树同样可选。
+- **头部信息**：仓库名、当前分支、`↑ahead ↓behind`、脏文件数。
+- **远端信息过期会告诉你**：图谱画的是**本地**仓库，本页绝不碰网络——这正是「只读」承诺的一部分。
+  所以远端上刚发生的合并，在有人跑过 `git fetch` 之前这里看不见。页面不会让你对着图猜「是不是画错了」，
+  而是直接说明仓库上次 fetch 距今多久（6 小时内）、哪些本地分支落后于上游。从未 fetch 过的仓库
+  会如实报告「没有远端」，而不是「信息过期」。
+- **提交信息搜索**：高亮命中并逐个跳转（**不过滤列表** —— 过滤会打断泳道连续性，那正是这个页面的意义）。
+- **点行看详情**：完整 sha、作者与邮箱、绝对时间、父提交、参与的 refs。
+- **虚拟列表**：窗口内最多 2000 条也只渲染可见行；页面不是当前标签页时**完全不发请求**。
+- **错误态有话说**：不是 git 仓库 / PATH 里没有 git / 拿不到工作目录 / 被信任围栏拒绝 / git 失败，
+  各有各的文案，不给你一片空白。
+- **零依赖、零构建**：宿主半是纯 ESM，浏览器半是手写的单文件 client bundle。
+  `lib/` 里读到的就是实际跑的代码，没有构建产物与源码的偏差。
+- **跟随会话的 worktree 标签**：装了并启用
+  [`@zeng/dsh-session-worktree`](https://github.com/AFunDog/dsh-session-worktree) 时，
+  页面默认画**该会话打了标签的那个工作树**，而不是工作目录碰巧所在的那个仓库。
+  仓库优先级：**你在下拉里手点的** → **会话的 worktree 标签** → 这个工作区上次记住的仓库
+  → 工作目录所在的仓库 → 扫到的第一个。页面会说明「正在跟随标签」；用不了时说得更清楚
+  （目录没了 / 不是仓库根 / 出了本页可访问范围）—— **绝不静默换一个仓库还不吭声**。
+  卸载或停用那个插件，行为与以前完全一致。
 
-## Install
+## 安装
 
 ```sh
 dsh plugin --profile web add github:AFunDog/dsh-sidebar-git-graph
 ```
 
-Then restart `dsh web` (the host half adds a route) and hard-refresh the browser. Open the right
-sidebar and pick **Git graph** — from the `+` menu when dsh-better-sidebar is installed, or from
-the sidebar's guide page on a bare DSH (the `+` control is not drawn while that pane already
-holds the guide tab). The page follows the session you are viewing:
-switch sessions and it re-reads that session's workspace.
+装完**重启 `dsh web`**（宿主半要挂路由），再硬刷新浏览器。打开右侧栏选「Git 图谱」——
+装了 dsh-better-sidebar 时它在 `+` 菜单里；裸 DSH 下就在侧栏的**引导页**上（该格已经放着引导页时
+`+` 控件不会绘制）。
+页面跟随你**正在看的会话**：切会话就重新读那个会话的工作区。
 
 <details>
-<summary>Pin a version, or install from a local clone</summary>
+<summary>钉版本 / 从本地克隆安装</summary>
 
 ```sh
-# pin a tag (recommended: lockfiles record the resolved commit)
+# 钉 tag（推荐：lockfile 会记下解析到的 commit）
 dsh plugin --profile web add github:AFunDog/dsh-sidebar-git-graph#v0.2.0
 
-# from a local clone (absolute path only — relative paths are rejected by spec parsing)
+# 从本地克隆（只接受**绝对**路径 —— 相对路径会被 spec 解析器拒绝）
 dsh plugin --profile web add /path/to/dsh-sidebar-git-graph
 ```
 </details>
 
-### With or without dsh-better-sidebar
+### 装没装 dsh-better-sidebar 都能用
 
-The page works both ways, and picks automatically:
+页面会自动二选一：
 
-| Your setup | What happens |
+| 你的环境 | 行为 |
 |---|---|
-| [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) installed | The page registers through its public `ctx.betterSidebar.registerTab` service: it shows up in the `+` menu, gets a card in *Settings → Side cards* (with an on/off switch and a per-plugin setting for the commit window), and appears under **Git graph**. |
-| Bare DSH | The page registers with DSH's own sidebar tab type (`ctx.sidebarRightTabs` + the `sidebar.right.pane.tab` slot) — same column, same `+` menu, minus the settings card. |
+| 装了 [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) | 走它的公开扩展点 `ctx.betterSidebar.registerTab`：出现在 `+` 菜单，并在**设置 → 侧边卡片**里得到一张卡片（开关 + 一个"每次加载条数"的插件设置），名字是「Git 图谱」。 |
+| 裸 DSH | 走 DSH 原生的侧栏 tab 类型（`ctx.sidebarRightTabs` + `sidebar.right.pane.tab` 槽）：同一列、同一个 `+` 菜单，只是没有那张设置卡片。 |
 
-## Settings
+## 设置
 
-| Setting | Where | Default | Meaning |
+| 设置 | 位置 | 默认 | 含义 |
 |---|---|---|---|
-| Commits loaded per read | *Settings → Side cards → Git graph → feature settings* (dsh-better-sidebar only) | `400` | 100–2000. Bigger is more complete and slower on first read. |
-| Repository scan depth | same place | `5` | 0–8. How deep to look for repositories to offer in the picker; `0` means "no scan — only the repository the working directory is in". Lower it if a huge workspace reports an incomplete list. |
-| History scope | page header | all branches | *All branches* or *current branch only*. |
-| Commit search | page header | — | Highlights matches and steps through them. |
+| 每次加载的提交数 | 设置 → 侧边卡片 → Git 图谱 → 功能设置（仅 dsh-better-sidebar） | `400` | 100–2000。越大越完整，首次读取越慢。 |
+| 仓库扫描层数 | 同上 | `5` | 0–8。往工作区里找几个仓库供下拉选择；`0` = 不扫，只认工作目录所在的仓库。工作区特别大导致清单扫不全时，把它调小。 |
+| 历史范围 | 页面头部 | 全部分支 | 全部分支 / 仅当前分支。 |
+| 提交搜索 | 页面头部 | — | 高亮命中并逐个跳转。 |
 
-## Limitations
+## 已知限制
 
-- **Read-only by design.** No staging, no commit, no checkout, no push. To change the working
-  tree, use another tool.
-- **Untracked files carry no `+/−` counts.** `git diff --no-index` compares exactly two paths, so
-  per-file counts would mean one process per file — hundreds of them in a repository that has not
-  been `add`ed yet. The section header counts what it can and leaves the rest blank rather than
-  printing a `0` that would read as "nothing changed". A file changed on both sides shows up in
-  both sections, which is what the two sections are for.
-- **A nested repository is one non-clickable row.** `git` does not descend into a repository
-  inside a repository (even with `-uall`), so the outer repository sees a single directory and
-  there is no diff to show for it. The page says so on the row instead of doing nothing when
-  clicked.
-- **At most 3000 rows**, and at most 512 KiB of patch per file; both are reported in the page
-  rather than silently cut.
-- **The window is bounded** (up to 2000 commits per read, default 400); older history is
-  reported as truncated rather than silently dropped.
-- **Repository discovery is bounded, and it scans the filesystem.** Depth, directory count,
-  repository count and elapsed time are all capped; hitting a cap is reported in the page instead
-  of being hidden, and lowering the scan depth is the fix. Directories that never hold repositories
-  of interest (`node_modules`, `target`, `.venv`, build output, …) are not descended into — though
-  each of them is still stat'd once, so a repository that happens to be named `build` is still
-  found.
-- **The picker only offers what is reachable from the workspace** — the workspace itself, something
-  inside it, the repository that encloses it, or a **working tree of the repository the workspace
-  is in** (as reported by `git worktree list`). The host refuses any other path even if the
-  browser asks for it, and re-checks with `rev-parse` that the path really is a repository root.
-- **A working tree is read on its own.** `git status` and `git log` are per working tree, so each
-  one shows its own branch, its own uncommitted changes and its own `HEAD`; the page never merges
-  two working trees into one view. Working trees that are gone (`prunable`) and bare repositories
-  are listed as a count in a notice rather than offered.
-- **Search does not filter the graph** — filtering would break lane continuity, which is the
-  whole point of the page; matches are highlighted and stepped through instead.
-- **Lane colors** are derived from DSH theme tokens with `color-mix()`. On a browser without
-  `color-mix()`, lanes fall back to the four theme state colors in rotation.
-- Verified on DSH `0.1.7-rc.2` with `dsh-better-sidebar` 0.21.1; the native fallback path is
-  covered by the same tests but has had less real-world use.
-- The npm name `dsh-git-graph` belongs to a **different** plugin by another author
-  ([enoughpower/dsh-git-graph](https://www.npmjs.com/package/dsh-git-graph)). This one is
-  `@zeng/dsh-sidebar-git-graph` and is currently distributed from GitHub only.
+- **只读是设计**：不暂存、不提交、不切分支、不 push。要改工作树就用别的工具。
+- **未跟踪文件没有 +/− 计数**：`git diff --no-index` 只比较两个路径，要行数就得**每个文件起一个进程**
+  （一个还没 `add` 过的仓库里可能是几百次）。所以段头只统计拿得到计数的行，拿不到的**留空**，
+  而不是印一个会被读成「没有改动」的 `0`。一个文件两侧都改过（`MM`）会**同时出现在两段**——
+  那正是这两段的含义。
+- **内嵌的独立仓库是一行不可点的目录**：git 不会下钻进「仓库里的仓库」（`-uall` 也不下钻），
+  所以外层仓库只看得见一个目录，它没有 diff 可显示。页面在那一行上说明原因，而不是点了没反应。
+- **上限**：一次最多 3000 行改动、单个文件最多 512 KiB patch；两者都会在页面上如实说明，
+  而不是悄悄截掉。
+- **窗口有上限**（单次最多 2000 条，默认 400）；更老的历史会明确提示"被截断"，而不是静默丢弃。
+- **仓库发现是有上限的扫盘**：层数、目录数、仓库数、耗时四道闸门，踩到任何一条都会在页面上
+  如实说明（而不是假装清单就是全的）；解决办法是把扫描层数调小。显然不会住着"想单独画的仓库"
+  的目录（`node_modules`、`target`、`.venv`、构建产物…）不向下递归——但每个仍会 stat 一次，
+  所以一个恰好叫 `build` 的仓库不会被漏掉。
+- **下拉里只会出现从工作区够得到的仓库**：工作区自身、它里面的、把它包住的那个，以及
+  **工作区所属仓库的工作树**（以 `git worktree list` 为准）。别的路径即使浏览器点名，宿主也会
+  拒绝；并且会用 `rev-parse` 复核它确实是仓库根。
+- **每个工作树各读各的**：`git status` 与 `git log` 都是按工作树算的，所以每个工作树显示自己的
+  分支、自己的未提交改动、自己的 `HEAD`；页面从不把两个工作树合成一份。
+  目录已不在的（`prunable`）与裸仓库不列出，只在提示里给出条数。
+- **搜索不过滤图**（理由见特性一节）。
+- **泳道配色**由 DSH 主题令牌 + `color-mix()` 派生；不支持 `color-mix()` 的浏览器退化为四个主题状态色循环。
+- 在 DSH `0.1.7-rc.2` + `dsh-better-sidebar` 0.21.1 上真机验证过；原生回退路径有同一套测试覆盖，
+  但真机使用得少一些。
+- npm 上的 `dsh-git-graph` 是**另一个作者的另一个插件**
+  （[enoughpower/dsh-git-graph](https://www.npmjs.com/package/dsh-git-graph)）。
+  本插件是 `@zeng/dsh-sidebar-git-graph`，目前只从 GitHub 分发。
 
-## Development
+## 开发
 
-No build step: edit `lib/`, restart `dsh web` for host-half changes, hard-refresh for browser-half
-changes (a changed client bundle is picked up with a reload — its `rev` is re-derived from the
-file's mtime).
+没有构建步骤：改 `lib/` → 宿主半改动重启 `dsh web`，浏览器半改动硬刷新即可
+（bundle 的 `rev` 从文件 mtime 重新推导，刷新就会拿到新内容）。
 
 ```sh
-npm test        # = node scripts/test.mjs: node --check on every lib file, then every test
+npm test        # = node scripts/test.mjs：先 node --check 每个 lib 文件，再逐个跑测试
 ```
 
-The architecture map, the lane-layout invariant, the theme-token checks and the
-implementer traps live in [AGENTS.md](AGENTS.md).
+路线图、内部结构、泳道算法不变量与 21 条踩坑记录都在 [AGENTS.md](AGENTS.md)。
 
-## License
+## 许可
 
-MIT — see [LICENSE](LICENSE).
+MIT，见 [LICENSE](LICENSE)。
 
-[中文说明](README.zh.md)
+[English](README.en.md)
