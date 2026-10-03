@@ -11,9 +11,7 @@
 不 `worktree add/remove/prune`。
 只跑 `rev-parse`、`status`、`for-each-ref`、`log`、`diff`、`worktree list` 六条命令。
 
-![Git 图谱页面：彩色泳道、ref 芯片、提交行](docs/screenshot.png)
-
-> 上面这张截图拍于「更改」区之前，只显示提交图。
+![Git 图谱页面：彩色泳道、ref 芯片、提交行，上方是工作树「更改」区](docs/screenshot.png)
 
 > [English](README.en.md)。参与开发、想了解内部实现或踩坑记录，请看 [AGENTS.md](AGENTS.md)。
 

@@ -12,9 +12,7 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
 `add`, `restore` or `worktree add/remove/prune`. The only git commands it runs are `rev-parse`,
 `status`, `for-each-ref`, `log`, `diff` and `worktree list`.
 
-![The Git graph page: colored lanes, ref chips, commit rows](docs/screenshot.png)
-
-> The screenshot above predates the Changes area and shows the commit graph alone.
+![The Git graph page: colored lanes, ref chips, commit rows, with the working-tree Changes area above](docs/screenshot.png)
 
 > 中文说明见 [README.md](README.md)。Contributing / internals / the full trap list live in
 > [AGENTS.md](AGENTS.md).
