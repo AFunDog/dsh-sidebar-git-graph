@@ -16,6 +16,9 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
 
 > The screenshot above predates the Changes area and shows the commit graph alone.
 
+> 中文说明（默认文档）：[README.zh.md](README.zh.md)。
+> Contributing / internals / the full trap list live in [AGENTS.md](AGENTS.md).
+
 ## Features
 
 - **Working-tree changes, VS Code style** — a **Changes** and a **Staged Changes** section above
@@ -57,10 +60,8 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
   remembered for this workspace → the repository of the working directory → the first one found.
   The page says when it is following the label, and says so more loudly when it cannot
   (a label pointing at a directory that is gone, is not a repository root, or is outside what
-  this page may read) — it never silently swaps in a different repository. No detection code is
-  needed: the label is published as a host service that disappears along with the plugin when it
-  is disabled, so "is it enabled" is one lookup. Uninstalling or disabling that plugin restores
-  the previous behaviour exactly.
+  this page may read) — it never silently swaps in a different repository. Uninstalling or
+  disabling that plugin restores the previous behaviour exactly.
 - **Commit search** — highlights matches and steps through them (the graph stays intact; it
   never re-lays-out a filtered list).
 - **Details on click** — full sha, author + email, absolute time, parents, participating refs.
@@ -103,46 +104,6 @@ The page works both ways, and picks automatically:
 |---|---|
 | [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) installed | The page registers through its public `ctx.betterSidebar.registerTab` service: it shows up in the `+` menu, gets a card in *Settings → Side cards* (with an on/off switch and a per-plugin setting for the commit window), and appears under **Git graph**. |
 | Bare DSH | The page registers with DSH's own sidebar tab type (`ctx.sidebarRightTabs` + the `sidebar.right.pane.tab` slot) — same column, same `+` menu, minus the settings card. |
-
-The service contract is re-stated locally (only `registerTab` / `openTab` are used) and is
-activated with `ctx.inject`, never a static `inject`: a statically declared service that is
-absent would park this plugin's fiber, which shows up as "works after a hot reload, gone after
-a restart".
-
-## How it works
-
-```
-lib/index.js      host half  — POST /dsh-sidebar-git-graph/api, git execution, trust fence
-lib/git-read.js   host half  — pure: argv builders + parsers (importable by plain node)
-lib/changes.js    host half  — pure: working-tree argv builders + parsers
-lib/worktrees.js  host half  — pure: `git worktree list` argv builder + parser
-lib/repos.js      host half  — "how many repositories are in this workspace" discovery
-lib/workspace.js  host half  — sessionId → working directory, workspace allow-list, fence
-lib/client.js     browser half — tab registration, lane layout, SVG rendering (single file)
-test/             zero-dependency tests (node scripts/test.mjs runs them all)
-```
-
-The route dispatches on the request envelope's `method`: `graph` (commit DAG), `changes`
-(working-tree status) and `diff` (one file's patch).
-
-1. The browser half reads the session's working directory and asks the host for a snapshot.
-2. The host resolves which workspace belongs to that session (session service → persisted
-   workspace table → workspace registry → newest session directory), refuses paths that are
-   neither registered nor the session's own cwd, then picks the repository to draw: the one the
-   browser named (if it passes the fence and `rev-parse` agrees it is a repository root), else the
-   one containing the workspace, else the first one it finds inside the workspace. It runs the
-   five read-only commands (including `worktree list`, which supplies the working trees of that
-   repository) with a sanitized environment, a 10 s timeout and a 48 MiB output cap, and answers
-   with
-   `{ repo, repos[], selection, worktrees, refs, commits[{ sha, parents, author, email, time, subject, refs }] }`.
-   The repository list has **two sources**: `git worktree list` (the working trees of the one
-   repository, each with its own branch) and the directory scan (independent repositories inside
-   the workspace), tagged per entry with `kind`.
-3. The browser half lays the commits out into lanes with one pass over `--topo-order` history
-   and renders SVG bezier connectors under a virtualized row list.
-
-The layout function and the geometry builder are pure and exposed on the plugin's `internals`
-so the test suite can drive them without a browser.
 
 ## Settings
 
@@ -188,8 +149,6 @@ so the test suite can drive them without a browser.
   whole point of the page; matches are highlighted and stepped through instead.
 - **Lane colors** are derived from DSH theme tokens with `color-mix()`. On a browser without
   `color-mix()`, lanes fall back to the four theme state colors in rotation.
-- **Persisted DSH internals are a fallback only** — reading `storages/workspace.json` and
-  `sessions/` is the last resort when the session/workspace services are unavailable.
 - Verified on DSH `0.1.7-rc.2` with `dsh-better-sidebar` 0.21.1; the native fallback path is
   covered by the same tests but has had less real-world use.
 - The npm name `dsh-git-graph` belongs to a **different** plugin by another author
@@ -206,131 +165,8 @@ file's mtime).
 npm test        # = node scripts/test.mjs: node --check on every lib file, then every test
 ```
 
-`git` must be on `PATH` for the route test. `scripts/test.mjs` discovers `test/*.test.cjs`, so a
-new test file cannot be forgotten in CI (listing files in the workflow once already meant three
-new tests ran nowhere).
-
-<details>
-<summary>Checking the theme tokens against a real DSH install</summary>
-
-Colour tokens are the one place where a typo fails *silently*: `var(--typo, fallback)` just falls
-back, so a wrong name shows up as "the colours look wrong" rather than as an error. This plugin
-shipped exactly that bug once — the current-branch chip used `--dsw-alias-label-inverse`, which
-does not exist, so its text inherited the theme's body colour while its background was
-`--dsw-alias-brand-primary`. In the light theme those two resolve to the *same* value: the chip
-was 1.00:1 contrast in both themes (white on white in dark mode). The fix is
-`--dsw-alias-label-primary-foreground`, the token DSH itself pairs with `button-primary-fill`
-(= `brand-primary`): 18.9:1 and 18.1:1.
-
-`test/style-tokens.test.cjs` has a built-in snapshot of every `--dsw-alias-*` token and fails if
-the CSS references anything outside it. To re-check that snapshot against the real theme:
-
-```sh
-ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js \
-  node test/style-tokens.test.cjs
-```
-</details>
-
-## Notes for implementers
-
-Traps that cost real time here, in the order they bite:
-
-1. **`String.split(sep, limit)` discards the remainder** — it does not fold it into the last
-   element. `'a file with spaces.txt'.split(' ', 11)[10]` is `'a'`. Every porcelain v2 record
-   ends with a path that **may contain spaces**, so indexing by field number truncates it
-   silently. Split the fixed fields off and join the rest back.
-2. **The `u` (unmerged) record is not shaped like `1` or `2`** — it has **11** fields
-   (`u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>`). Parsing it as a 9-field `1`
-   record drops conflict files entirely, which is silent data loss that only appears during an
-   actual merge. Produce a real conflict and dump the bytes instead of trusting the docs.
-3. **`git diff --no-index` exits 1 when the files differ**, and stderr is empty in that case.
-   Without special-casing it, untracked files can never open a diff and there is no error message
-   to explain why.
-4. **Pass both paths for a rename.** With only the new path, `-M` does not detect the rename and
-   you get "new file mode" plus the whole file as additions (measured: 1 added line became 41).
-5. **Do not inspect `-z` output through a PowerShell pipeline.** PowerShell splits on newlines
-   and stringifies; `-z` output has no newlines, so the whole thing collapses into one element and
-   the NUL boundaries become easy to misread. Use Node with `encoding: 'buffer'` and split on NUL.
-6. **`--literal-pathspecs` is mandatory.** Without it a browser-supplied `path` is parsed as
-   pathspec syntax, and a value like `:(top)*` widens "read one file" into "read the whole tree".
-7. **Nested repositories have no diff.** `git` does not descend into a repository inside a
-   repository, even with `-uall`, so the outer repository reports one directory row and
-   `--no-index` on it fails with `Could not access '<dir>/null'`.
-8. **`git diff` on an unmerged path emits a *combined* diff** — `@@@` hunk headers with
-   two-character prefixes (`++`, ` +`, `+ `). A unified-diff reader cannot parse it and will
-   return zero lines, i.e. an empty diff with no error. Compare such paths against `HEAD`
-   instead; that is a normal unified diff and shows the file exactly as it is on disk.
-9. **A conflicted file and an untracked file share the status letter `U`** — so the client must
-   not decide "use `--no-index`" from the letter. Getting it wrong renders the whole file as
-   additions, again with no error. The host states `untracked` explicitly per row.
-10. **`method` is not part of the old contract.** Before this release the host ignored it and
-    always answered with commit-graph data. Because the browser half reloads on every page load
-    while the host half needs a restart, an older host is a *normal* state to be in — so validate
-    the response shape, or you will render "no changes" from a payload that never mentioned any.
-11. **Do not sanitize the git environment by disabling system config.** Setting
-    `GIT_CONFIG_NOSYSTEM=1` also drops `core.autocrlf`, which Git for Windows sets in its *system*
-    config. A repository with LF in the index and CRLF in the working tree then reports **every
-    line as changed** — `+1 −0` became `+88 −87`, a one-line addition drawn as a whole-file
-    rewrite. Setting `GIT_CONFIG_SYSTEM` to an empty string does the same thing (measured), so
-    "redirect it instead" is not a safe variant either. Set neither and let git find its own
-    config; whitelist the *environment* to keep credentials out. Verify by diffing your counts
-    against `git diff --numstat` on the same tree.
-12. **A linked working tree is invisible to any filesystem scan.** `git worktree add` puts the
-    working tree wherever you ask — commonly a *sibling* of the main one, related to it by nothing
-    but a one-line `.git` **file** (`gitdir: …/.git/worktrees/<name>`). Walking the workspace
-    directory finds neither it nor any hint that it exists, and `rev-parse --show-toplevel` inside
-    it answers with *itself*, so "is it inside / does it enclose the workspace" is false in both
-    directions. Ask `git worktree list` instead — and ask it of a **host-chosen** repository, never
-    of the path being validated: `worktree list` always lists at least the repository it was asked
-    about, so a requested path would vouch for itself and the fence would be a no-op.
-13. **`worktree list --porcelain -z` separates records with *two* NULs and fields with one.** Paths
-    are absolute with forward slashes and are **not** quoted in `-z` mode (a path containing a
-    space comes through raw), so they must still be normalized before comparing. Optional lines:
-    `detached` (and then there is **no** `branch` line), `locked`, `prunable <reason>`, `bare` —
-    and `locked`/`prunable` may carry a reason, so compare for the word, not for equality. `locked`
-    means only "not removable": its contents are perfectly readable and it must stay listed;
-    `prunable` means the directory is gone and it must not be.
-14. **A branch curve's destination lane is not automatically "handled".** The lane layout emits,
-    per row, the curves that fork/merge plus the lanes that merely pass through. It is tempting to
-    mark every curve endpoint as "this lane is already drawn on this row" — but a fork curve has
-    two very different destinations:
-    - the lane was **opened by this row** (the parent was not in flight): nothing arrives from
-      above, so a through-line here would draw a stub hanging in mid-air — omit it;
-    - the lane was **already waiting** for that parent (another commit put it in flight earlier):
-      a line arrives from the row above **and** must continue below — the through-line is
-      mandatory, and skipping it deletes exactly one row's worth of that lane.
-
-    The connector curve still gets drawn in the second case, so the row does not look empty; it
-    looks like the line was erased under it. On this machine that was **40 seams across 8
-    repositories** (3109 seams scanned) before the fix. The invariant is cheap to assert: for every
-    row boundary, the set of x positions carrying ink on the lower edge of row *r* must equal the
-    set on the upper edge of row *r+1*. `test/graph-continuity.test.cjs` does exactly that, over
-    hand-written shapes and 300 seeded random DAGs.
-15. **`pointer-events: none` does not stop an element from being painted over.** The graph SVG is
-    the scroll-sizer's first child, and every commit row is an absolutely-positioned opaque box
-    later in DOM order. Rows paint after the SVG, so any row background the theme actually fills in
-    — `:hover`, or `[data-selected="true"]` — hides the lane column for that row. The SVG needs an
-    explicit `z-index` (and its positioned parent), which is why `test/graph-continuity.test.cjs`
-    also pins that stylesheet contract; hit-testing stays correct because the SVG is still
-    `pointer-events: none`, so clicking the graph column still selects the row.
-16. **"I saw it merge, but the graph doesn't show it" is a fetch-staleness question, not a drawing
-    bug.** The graph is local by design, so the honest answer needs the **age of the local
-    repository's knowledge of the remote**, and that age is not derivable from refs — a local
-    branch and its *stale* remote-tracking ref point at the **same** commit, so the behind-count is
-    `0` while the remote has moved on ten commits. Stat `FETCH_HEAD` instead, and stat it in
-    **two** places: measured on one machine, a linked working tree had its own
-    `.git/worktrees/<name>/FETCH_HEAD` at 10:36 while the main working tree's was at 11:10 — read
-    only one and you will call a fresh repository stale while the user sits in the other working
-    tree. Take the newer of the two. Also note that overwriting an existing ref does **not** bump
-    the parent directory's mtime (`refs/remotes` sat at 09-20 while `origin/develop` was 10-02), so
-    never stat the directory; and a repository that has never fetched has no `FETCH_HEAD` at all,
-    which means "no remote", not "stale".
-17. **A payload version check must be `>=`, never `===`.** `isNewHost` compared `schema === 2`;
-    adding one field and bumping to `3` made the browser half classify a **newer** host as old and
-    advise the user to restart — the exact opposite of the truth, and the kind of bug that only
-    shows up on the one machine that has both halves at different versions. Judge a specific
-    field's presence by that field (as `freshnessNotice` does), and keep the general version check
-    monotonic.
+The architecture map, the lane-layout invariant, the theme-token checks and the
+implementer traps live in [AGENTS.md](AGENTS.md).
 
 ## License
 

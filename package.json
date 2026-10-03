@@ -16,6 +16,7 @@
     "test",
     "scripts",
     "cordis.patch.yml",
+    "AGENTS.md",
     "CHANGELOG.md",
     "README.md",
     "README.zh.md",
