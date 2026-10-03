@@ -13,6 +13,8 @@
 
 ![Git 图谱页面：彩色泳道、ref 芯片、提交行，上方是工作树「更改」区](docs/screenshot.png)
 
+![深色主题下的同一页面：泳道配色由主题令牌派生](docs/screenshot-dark.png)
+
 > [English](README.en.md)。参与开发、想了解内部实现或踩坑记录，请看 [AGENTS.md](AGENTS.md)。
 
 ## 特性

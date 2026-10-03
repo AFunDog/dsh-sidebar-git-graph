@@ -14,6 +14,8 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
 
 ![The Git graph page: colored lanes, ref chips, commit rows, with the working-tree Changes area above](docs/screenshot.png)
 
+![The same page in the dark theme: lane colors are derived from theme tokens](docs/screenshot-dark.png)
+
 > 中文说明见 [README.md](README.md)。Contributing / internals / the full trap list live in
 > [AGENTS.md](AGENTS.md).
 
