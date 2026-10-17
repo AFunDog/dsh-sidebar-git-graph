@@ -64,7 +64,13 @@ bezier curves where branches split and merge, ref chips, per-commit details — 
   disabling that plugin restores the previous behaviour exactly.
 - **Commit search** — highlights matches and steps through them (the graph stays intact; it
   never re-lays-out a filtered list).
-- **Details on click** — full sha, author + email, absolute time, parents, participating refs.
+- **Details on click — including which files that commit touched.** Full sha, author + email,
+  absolute time, parents, participating refs; below that, the list of **changed files** with their
+  status letter (`A`/`M`/`D`/`R`/`C`/`T`), the original name for renames, and per-file `+/−` counts.
+  Click a file and its patch expands **in place** — the same rendering and the same feel as the
+  Changes area. A merge commit is compared against its **first parent** and the heading says so
+  (otherwise you would think the files were written by the merge itself); a binary file says
+  "binary file, no line-by-line diff" when expanded instead of showing you an empty diff.
 - **Virtualized list** — a 2000-commit window still renders only the visible rows; nothing is
   requested while the page is not the visible tab.
 - **Honest error states** — not a git repository / no `git` on `PATH` / no workspace / trust
@@ -141,10 +147,19 @@ The page works both ways, and picks automatically:
   inside it, the repository that encloses it, or a **working tree of the repository the workspace
   is in** (as reported by `git worktree list`). The host refuses any other path even if the
   browser asks for it, and re-checks with `rev-parse` that the path really is a repository root.
+- **A deleted working directory is skipped instead of being fatal.** The path held by the
+  session/tab may be a linked working tree that has already been removed (deleting them once the
+  work is done is the normal case). The host walks on to the first candidate that still exists and
+  says which directory is gone and where it drew instead — rather than answering with nothing but
+  `工作目录不存在`.
 - **A working tree is read on its own.** `git status` and `git log` are per working tree, so each
   one shows its own branch, its own uncommitted changes and its own `HEAD`; the page never merges
   two working trees into one view. Working trees that are gone (`prunable`) and bare repositories
   are listed as a count in a notice rather than offered.
+- **A commit's file list is capped** at 2000 files (an initial commit in a large repository can
+  touch tens of thousands); past that the page says "N in total, first M listed" rather than
+  quietly listing fewer. A merge commit lists what changed **against its first parent** (the same
+  convention VS Code uses), and an empty commit says so.
 - **Search does not filter the graph** — filtering would break lane continuity, which is the
   whole point of the page; matches are highlighted and stepped through instead.
 - **Lane colors** are derived from DSH theme tokens with `color-mix()`. On a browser without

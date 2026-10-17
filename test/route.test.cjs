@@ -243,6 +243,55 @@ async function main() {
   const relativeRepo = await handleGraph(ctx, { cwd: ws, repo: 'aa-outer' })
   assert.strictEqual(relativeRepo.value.selection.fallback, true)
 
+  // ── 工作目录被删：跳过它，改用还活着的候选（2026-10-17 用户报的真问题）────────
+  // 现场：会话 cwd 好好的，而标签页手里攥着一个**已经删掉的关联工作树**。关键在于它就落在
+  // 工作区**里面**——所以"被已注册工作区背书"那道闸对它照样放行（`isBackedByWorkspace` 是
+  // 包含判定，`canonical` 对不存在的路径退回 `resolve`，于是删掉的工作树仍拿得到通行证）。
+  // 旧行为：它就凭这一点压过活着的会话 cwd，紧接着一句「工作目录不存在」在**回退梯子之前**
+  // 直接返回——图谱彻底空白，而正确的工作目录就在手边。
+  const gone = path.join(ws, '.worktree', 'profile-tier-plan') // 故意不创建：删掉的工作树
+  const ctxWith = (options) => ({
+    get(name) {
+      if (name === 'sessions' && options.sessionCwd !== undefined) {
+        return { get: () => ({ header: { cwd: options.sessionCwd } }) }
+      }
+      if (name === 'workspaceRegistry' && options.workspace !== undefined) {
+        return { list: () => [{ path: options.workspace }] }
+      }
+      return undefined
+    },
+    logger: { info() {}, warn() {} },
+  })
+
+  // 1) 活着的会话 cwd 仍在 → 跳过死路径照常画，并如实交代被跳过的是哪个。
+  const live = ctxWith({ sessionCwd: ws, workspace: ws })
+  const recovered = await handleGraph(live, { sessionId: 's-live', cwd: gone })
+  assert.strictEqual(recovered.ok, true, `一个删掉的工作树不该把整张回退梯子掐掉：${JSON.stringify(recovered.error)}`)
+  assert.strictEqual(canon(recovered.value.workspace.cwd), canon(ws), '应改用会话自己的 cwd')
+  assert.strictEqual(recovered.value.workspace.source, 'session')
+  assert.deepStrictEqual(recovered.value.workspace.stale, { path: gone, source: 'claimed' }, '被跳过的那个必须说出来')
+  assert.strictEqual(recovered.value.repo.root, canon(outer), '照常画出工作区里的仓库')
+
+  // 2) 客户端点名的路径**活着**时优先级不变（这条补丁不该动"手点赢过一切"）。
+  const stillClaimed = await handleGraph(live, { sessionId: 's-live', cwd: ws })
+  assert.strictEqual(stillClaimed.value.workspace.source, 'claimed')
+  assert.strictEqual(stillClaimed.value.workspace.stale, null, '没跳过谁就不该有这条提示')
+
+  // 3) 候选全都不在了 → 仍旧报错，而错误里要带**具体是哪个**目录没了。
+  const deadCwd = path.join(sandbox, 'gone', 'session-cwd')
+  const allDead = await handleGraph(ctxWith({ sessionCwd: deadCwd }), { sessionId: 's-dead', cwd: gone })
+  assert.strictEqual(allDead.ok, false)
+  assert.strictEqual(allDead.error.code, 'no-workspace')
+  assert.ok(allDead.error.message.includes('工作目录不存在'), allDead.error.message)
+  assert.ok(allDead.error.message.includes('session-cwd'), `错误里要带具体路径：${allDead.error.message}`)
+
+  // 4) 一个宿主候选都没有、客户端给的路又不存在：照旧把**那条路径**报出来
+  //    （别退化成"拿不到工作目录"——那是另一回事，会把诊断带偏）。
+  const noCandidates = await handleGraph(ctx, { cwd: gone })
+  assert.strictEqual(noCandidates.ok, false)
+  assert.strictEqual(noCandidates.error.code, 'no-workspace')
+  assert.ok(noCandidates.error.message.includes(gone), `错误里要带具体路径：${noCandidates.error.message}`)
+
   // 关掉扫描：清单里只剩「工作目录所属仓库」与「点名要的那个」，但点名仍然生效。
   const noScan = await handleGraph(ctx, { cwd: ws, repo: inner, scanDepth: 0 })
   assert.strictEqual(noScan.value.repo.root, canon(inner))
@@ -287,6 +336,143 @@ async function main() {
   const badBody = JSON.parse(badJson.state.body)
   assert.strictEqual(badBody.result.ok, false)
   assert.strictEqual(badBody.result.error.code, 'no-workspace', '坏 JSON 退化成空 payload，仍给出明确错误码')
+
+  // ── 提交改了哪些文件（2026-10-17 新增）──────────────────────────────────
+  //
+  // 另起一个小仓库，而不是往 buildRepo 上摞：上面「4 个提交」是别的断言的基线，加提交会
+  // 把它一起改红。这里要的是**形状**：根 / 重命名 / 二进制 / 空提交 / 合并。
+  const cRepo = path.join(sandbox, 'crepo')
+  fs.mkdirSync(cRepo, { recursive: true })
+  git(cRepo, ['init'])
+  git(cRepo, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  git(cRepo, ['config', 'user.name', 'Test User'])
+  git(cRepo, ['config', 'user.email', 'test@example.com'])
+  git(cRepo, ['config', 'commit.gpgsign', 'false'])
+  git(cRepo, ['config', 'core.autocrlf', 'false'])
+
+  write(cRepo, 'a.txt', 'one\ntwo\n')
+  git(cRepo, ['add', '.'])
+  git(cRepo, ['commit', '-m', 'root: a.txt'])
+  const cRoot = git(cRepo, ['rev-parse', 'HEAD']).trim()
+
+  git(cRepo, ['mv', 'a.txt', 'renamed.txt'])
+  write(cRepo, 'renamed.txt', 'one\ntwo\nthree\n')
+  git(cRepo, ['add', '.'])
+  git(cRepo, ['commit', '-m', 'refactor: 改名 + 改内容'])
+  const cRename = git(cRepo, ['rev-parse', 'HEAD']).trim()
+
+  fs.writeFileSync(path.join(cRepo, 'real.bin'), Buffer.from([0x00, 0x01, 0xff, 0x00, 0x42]))
+  git(cRepo, ['add', '.'])
+  git(cRepo, ['commit', '-m', 'feat: 二进制'])
+  const cBinary = git(cRepo, ['rev-parse', 'HEAD']).trim()
+
+  git(cRepo, ['commit', '--allow-empty', '-m', 'chore: 空提交'])
+  const cEmpty = git(cRepo, ['rev-parse', 'HEAD']).trim()
+
+  git(cRepo, ['checkout', '-q', '-b', 'side'])
+  write(cRepo, 'side.txt', 'side\n')
+  git(cRepo, ['add', '.'])
+  git(cRepo, ['commit', '-m', 'side: 加 side.txt'])
+  git(cRepo, ['checkout', '-q', 'main'])
+  write(cRepo, 'main.txt', 'main\n')
+  git(cRepo, ['add', '.'])
+  git(cRepo, ['commit', '-m', 'main: 加 main.txt'])
+  git(cRepo, ['merge', '-q', '--no-ff', '-m', 'merge: side → main', 'side'])
+  const cMerge = git(cRepo, ['rev-parse', 'HEAD']).trim()
+
+  const { handleCommit, handleCommitDiff } = host.internals
+  const countAdds = (value) => (Array.isArray(value.lines) ? value.lines.filter((line) => line.kind === 'add').length : -1)
+
+  // 根提交：全部文件都是 A，计数照常有。
+  const rootFiles = await handleCommit(ctx, { cwd: cRepo, sha: cRoot })
+  assert.strictEqual(rootFiles.ok, true, JSON.stringify(rootFiles.error))
+  assert.deepStrictEqual(rootFiles.value.files.map((file) => `${file.status}:${file.path}`), ['A:a.txt'])
+  assert.strictEqual(rootFiles.value.totals.counted, 1)
+
+  // 重命名：状态 R + 原路径 + 新路径（实测形状：原路径在前）。
+  const renameFiles = await handleCommit(ctx, { cwd: cRepo, sha: cRename })
+  assert.strictEqual(renameFiles.value.files.length, 1)
+  assert.strictEqual(renameFiles.value.files[0].status, 'R')
+  assert.strictEqual(renameFiles.value.files[0].origPath, 'a.txt')
+  assert.strictEqual(renameFiles.value.files[0].path, 'renamed.txt')
+
+  // 二进制：计数是 undefined（不是 0），binary 为 true。
+  const binaryRow = (await handleCommit(ctx, { cwd: cRepo, sha: cBinary })).value.files.find((file) => file.path === 'real.bin')
+  assert.strictEqual(binaryRow.binary, true)
+  assert.strictEqual(binaryRow.added, undefined, '二进制没有行数，不能报 0')
+
+  // ⚠️ 回归：合并提交的清单**不能为空**。不带 `--first-parent` 时 git 给的是 combined diff，
+  // 干净合并的输出是**空的**——那会把「这个合并引入了 side.txt」说成「没改任何文件」。
+  const mergeFiles = await handleCommit(ctx, { cwd: cRepo, sha: cMerge })
+  assert.strictEqual(mergeFiles.ok, true, JSON.stringify(mergeFiles.error))
+  assert.ok(mergeFiles.value.files.length > 0, `合并提交必须按第一父提交列出文件：${JSON.stringify(mergeFiles.value.files)}`)
+  assert.ok(mergeFiles.value.files.some((file) => file.path === 'side.txt'), '相对第一父提交引入的就是 side.txt')
+
+  // 空提交：空清单，不是错误。
+  const emptyFiles = await handleCommit(ctx, { cwd: cRepo, sha: cEmpty })
+  assert.strictEqual(emptyFiles.ok, true)
+  assert.deepStrictEqual(emptyFiles.value.files, [])
+  assert.strictEqual(emptyFiles.value.totals.total, 0)
+
+  // 单文件 patch：形状与 `diff` **完全一致**（客户端复用同一个 diffView）。
+  const renameDiff = await handleCommitDiff(ctx, { cwd: cRepo, sha: cRename, path: 'renamed.txt', origPath: 'a.txt' })
+  assert.strictEqual(renameDiff.ok, true, JSON.stringify(renameDiff.error))
+  assert.strictEqual(renameDiff.value.kind, 'text')
+  assert.strictEqual(renameDiff.value.sha, cRename)
+  assert.strictEqual(renameDiff.value.path, 'renamed.txt')
+  assert.ok(renameDiff.value.lines.some((line) => line.kind === 'add' && line.text === 'three'))
+
+  // ⚠️ 重命名必须把新旧两个路径都给：只给新路径时 `-M` 认不出重命名，输出退化成「整文件新增」
+  // （实测：3 行改动 → 整个文件算新增）。这条断言就是钉这个的。
+  const onlyNew = await handleCommitDiff(ctx, { cwd: cRepo, sha: cRename, path: 'renamed.txt' })
+  assert.strictEqual(countAdds(renameDiff.value), 1, '给了原路径 → 只新增 three 这一行')
+  assert.ok(countAdds(onlyNew.value) >= 3, `只给新路径会退化成整文件新增（实到 ${countAdds(onlyNew.value)} 行）`)
+
+  // 二进制 patch → kind 'binary'（页面说「二进制文件」，而不是给一个空 diff）。
+  const binaryDiff = await handleCommitDiff(ctx, { cwd: cRepo, sha: cBinary, path: 'real.bin' })
+  assert.strictEqual(binaryDiff.ok, true)
+  assert.strictEqual(binaryDiff.value.kind, 'binary')
+
+  // 合并提交里的**文件 patch** 同样要 `--first-parent`，否则也是空的（实测）。
+  const mergeDiff = await handleCommitDiff(ctx, { cwd: cRepo, sha: cMerge, path: 'side.txt' })
+  assert.strictEqual(mergeDiff.ok, true, JSON.stringify(mergeDiff.error))
+  assert.strictEqual(mergeDiff.value.kind, 'text')
+  assert.ok(countAdds(mergeDiff.value) >= 1, '不带 --first-parent 时这里是空的')
+
+  // ── 闸门 ─────────────────────────────────────────────────────────────────
+  const badSha = await handleCommit(ctx, { cwd: cRepo, sha: '--upload-pack=touch /tmp/x' })
+  assert.strictEqual(badSha.ok, false)
+  assert.strictEqual(badSha.error.code, 'bad-sha', '以 - 开头的"选项"绝不能进 argv')
+
+  const ghostSha = await handleCommit(ctx, { cwd: cRepo, sha: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' })
+  assert.strictEqual(ghostSha.ok, false)
+  assert.strictEqual(ghostSha.error.code, 'no-commit', '找不到的提交要说"找不到了"，而不是笼统的 git 失败')
+
+  const escape = await handleCommitDiff(ctx, { cwd: cRepo, sha: cRoot, path: '../../etc/passwd' })
+  assert.strictEqual(escape.ok, false)
+  assert.strictEqual(escape.error.code, 'bad-path')
+
+  const noSha = await handleCommitDiff(ctx, { cwd: cRepo, path: 'a.txt' })
+  assert.strictEqual(noSha.ok, false)
+  assert.strictEqual(noSha.error.code, 'bad-sha')
+
+  // 路由分派：新 method 走同一个信封。
+  const commitRes = fakeRes()
+  await handleRoute(ctx, fakeReq({
+    body: JSON.stringify({ type: 'client-request', rpcId: 'c1', method: 'commit', payload: { cwd: cRepo, sha: cRoot } }),
+  }), commitRes)
+  const commitBody = JSON.parse(commitRes.state.body)
+  assert.strictEqual(commitBody.result.ok, true)
+  assert.strictEqual(commitBody.result.value.files.length, 1)
+
+  // 旧宿主对新 method 的回应形状（客户端据此说"重启 DSH 才生效"）。
+  const unknownRes = fakeRes()
+  await handleRoute(ctx, fakeReq({
+    body: JSON.stringify({ type: 'client-request', rpcId: 'c2', method: 'nope', payload: {} }),
+  }), unknownRes)
+  const unknownBody = JSON.parse(unknownRes.state.body)
+  assert.strictEqual(unknownBody.result.ok, false)
+  assert.strictEqual(unknownBody.result.error.code, 'bad-method')
 
   console.log(`route.test.cjs: OK (repo=${repo})`)
 }

@@ -55,6 +55,9 @@ function makeReact(values) {
       const value = provided === undefined ? initial : provided
       return [typeof value === 'function' ? value() : value, () => {}]
     },
+    // 展开块的高度是 useLayoutEffect 量的（绘制前量，避免闪一帧）。这里没有真实 DOM，
+    // 量不到东西，空实现即可——但**必须存在**，缺了就是 TypeError 整页白屏。
+    useLayoutEffect: () => {},
     useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
   }
 }

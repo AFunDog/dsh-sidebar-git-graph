@@ -237,6 +237,35 @@ async function main() {
       'isNewHost 必须在 notices 里被真正调用（不能只是导出给人看）')
   }
 
+  // ── 工作目录被删之后的提示文案（2026-10-17）──────────────────────────────
+  //
+  // 现场：会话/标签页手里攥着一个**已经删掉的关联工作树**，宿主改用还活着的候选继续画。
+  // 换地方是对的，不吭声就不对了——用户上次明明站在那个工作树里，页面却自己换了仓库。
+  {
+    const { staleWorkspaceNotice } = internals
+
+    // 没换地方：不出声。
+    // ⚠️ 与上面同理，用 `.kind` 而不是 deepStrictEqual：对象是跨模块边界回来的。
+    assert.strictEqual(staleWorkspaceNotice(undefined).kind, 'none')
+    assert.strictEqual(staleWorkspaceNotice(null).kind, 'none')
+    assert.strictEqual(staleWorkspaceNotice({}).kind, 'none')
+    assert.strictEqual(staleWorkspaceNotice({ cwd: 'D:/ws', source: 'session', stale: null }).kind, 'none')
+    assert.strictEqual(staleWorkspaceNotice({ cwd: 'D:/ws', stale: {} }).kind, 'none', '脏数据（没有 path）不该硬凑一句话')
+
+    // 换了：两头都要说清——少了哪一个都读不懂。
+    const notice = staleWorkspaceNotice({ cwd: 'D:/ws', source: 'session', stale: { path: 'D:/ws/.worktree/gone', source: 'claimed' } })
+    assert.strictEqual(notice.kind, 'stale')
+    assert.ok(notice.copy.includes('D:/ws/.worktree/gone'), `要说清原来那个是哪里：${notice.copy}`)
+    assert.ok(notice.copy.includes('D:/ws'), `要说清这次画的是哪里：${notice.copy}`)
+    assert.ok(!notice.copy.includes('undefined'), notice.copy)
+
+    // ⚠️ 与 isNewHost 同一条教训：判据必须**真的被 notices 用到**。定义了却不调用，
+    // 表现是"宿主明明换了地方、页面一声不吭"，而页面看起来一切正常。
+    const bundle = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'lib', 'client.js'), 'utf8')
+    assert.ok(/staleWorkspaceNotice\(value\.workspace\)/.test(bundle),
+      'staleWorkspaceNotice 必须在 notices 里被真正调用（不能只是导出给人看）')
+  }
+
   console.log('repo-picker.test.cjs: OK')
 }
 

@@ -13,6 +13,7 @@
 lib/index.js      host half  — POST /dsh-sidebar-git-graph/api, git execution, trust fence
 lib/git-read.js   host half  — pure: argv builders + parsers (importable by plain node)
 lib/changes.js    host half  — pure: working-tree argv builders + parsers
+lib/commit-files.js host half — pure: one commit's changed-files argv builders + parsers
 lib/worktrees.js  host half  — pure: `git worktree list` argv builder + parser
 lib/repos.js      host half  — "how many repositories are in this workspace" discovery
 lib/workspace.js  host half  — sessionId → working directory, workspace allow-list, fence
@@ -21,13 +22,20 @@ test/             zero-dependency tests (node scripts/test.mjs runs them all)
 ```
 
 The route dispatches on the request envelope's `method`: `graph` (commit DAG), `changes`
-(working-tree status) and `diff` (one file's patch).
+(working-tree status), `diff` (one working-tree file's patch), `commit` (which files one commit
+touched) and `commitDiff` (one file's patch inside a commit). An unknown method is answered with
+the `bad-method` error — that, **not** a schema number, is how the browser half recognises a host
+that predates a method.
 
 1. The browser half reads the session's working directory and asks the host for a snapshot.
 2. The host resolves which workspace belongs to that session (session service → persisted
    workspace table → workspace registry → newest session directory), refuses paths that are
-   neither registered nor the session's own cwd, then picks the repository to draw: the one the
-   browser named (if it passes the fence and `rev-parse` agrees it is a repository root), else the
+   neither registered nor the session's own cwd **or that no longer exist** (containment alone
+   would let a deleted linked working tree through), and when the chosen one turns out to be gone
+   it walks on to the first candidate that still exists — reporting the skipped path as
+   `workspace.stale` — instead of failing before the repository ladder. Then it picks the
+   repository to draw: the one the browser named (if it passes the fence and `rev-parse` agrees it
+   is a repository root), else the
    one containing the workspace, else the first one it finds inside the workspace. It runs the
    five read-only commands (including `worktree list`, which supplies the working trees of that
    repository) with a sanitized environment, a 10 s timeout and a 48 MiB output cap, and answers
@@ -92,6 +100,9 @@ ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js
   `git submodule` 看不见它们，只能扫盘。扫盘就得有闸门（层数/目录数/仓库数/耗时），
   而且**并发批次里也要查上限**——只在循环顶端查会冲过头（实测 130 个仓库一趟冲到 128 条）。
 - **CI 里手写测试文件清单会过期**（同上，自动发现是唯一正解）。
+- **改 CSS 时别在注释里写反引号**：整段 CSS 是放在 JS 模板字符串里的，一个反引号就把字符串
+  截断，症状是"四个测试文件一起红"（2026-10-17 实测踩过）。`scripts/test.mjs` 第一步的
+  `node --check lib/*.js` 会当场抓到，别跳过那道检查。
 
 ## 踩坑记录（写给后来者，按受咬顺序）
 
@@ -152,10 +163,22 @@ ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js
     可选行有 `detached`（此时**没有** `branch` 行）、`locked`、`prunable <原因>`、`bare`；
     后两者可能**带原因**，判据要按词匹配而不是整行相等。`locked` 只表示"不能 remove"——
     内容完全可读，必须照常列出；`prunable` 表示目录已经不在，必须剔除。
+16. **"这个路径在工作区里"不等于"这个路径还在"**。放行浏览器传来的工作目录时，判据是
+    `isBackedByWorkspace` —— 一个**包含**判定（`isInside` 比前缀）。而 `canonical` 在
+    `realpath` 失败时会退回 `resolve`，**不存在的路径照样能规范出一个值**。两件事叠起来：
+    `<仓库>\.worktree\<名字>` 这种用完就删的关联工作树，被删得干干净净之后仍然拿得到通行证。
+    2026-10-17 用户报的「图谱一直说工作目录不存在、也不回退」就是这么来的：那条死路径压过了
+    **活着的**会话 cwd，紧接着一句 `工作目录不存在` 又在回退梯子**之前**返回 ——
+    五档梯子（手点 → 标签 → hint → cwd 仓库 → 扫盘）一眼都没轮到，而正确的工作目录就在手边。
+    两条教训：（a）"在工作区里"必须再加一条"它真的在"；（b）**判死要走完整张候选表**——
+    "挑中了谁"只是优先级问题，跟"还有没有别的能画"是两回事；只有全都不在了才该报错，而且
+    错误里要保留**具体路径**（那份具体性正是当初加这道闸的理由）。被跳过的那位必须报出来
+    （`workspace.stale`，前端据此说"已改画 X"）——静默换地方是这里最糟的失败模式，与标签那
+    一档的 `tagReason` 同一规矩。
 
 ### 图形渲染
 
-16. **一条分支曲线的目的地泳道不等于"已处理"**。泳道布局每行会输出分叉/汇入的曲线，加上
+17. **一条分支曲线的目的地泳道不等于"已处理"**。泳道布局每行会输出分叉/汇入的曲线，加上
     只是路过的泳道。把每个曲线端点都标记成"这条泳道本行已画"很诱人——但分叉曲线有两种
     完全不同的去向：
     - 该泳道是**本行新开的**（父提交此前不在途）：上方不会有线进来，这里再画贯穿线就是
@@ -168,7 +191,7 @@ ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js
     便宜：对每一行边界，第 r 行下缘带墨的 x 位置集合必须等于第 r+1 行上缘的集合。
     `test/graph-continuity.test.cjs` 做的就是这件事，跑手写形状 + 300 个带种子的随机 DAG。
 
-17. **`pointer-events: none` 挡不住元素被盖住**。图谱 SVG 是滚动定高器的第一个子元素，
+18. **`pointer-events: none` 挡不住元素被盖住**。图谱 SVG 是滚动定高器的第一个子元素，
     而每个提交行都是 DOM 顺序靠后的绝对定位不透明盒子。行在 SVG 之后绘制，所以任何主题真的
     会填充背景的行——`:hover` 或 `[data-selected="true"]`——都会把那一行的泳道列盖掉。
     SVG 需要显式 `z-index`（以及它的定位父元素），这正是 `test/graph-continuity.test.cjs`
@@ -177,15 +200,15 @@ ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js
 
 ### 客户端/宿主契约与新鲜度
 
-18. **`method` 不是旧契约的一部分**：0.3.0 之前宿主忽略它，一律回提交图数据。而浏览器半
+19. **`method` 不是旧契约的一部分**：0.3.0 之前宿主忽略它，一律回提交图数据。而浏览器半
     **每次刷新都会重新加载**（rev 取自文件 mtime）、宿主半却要重启才换——所以「宿主是旧的」
     是一个**常态**，不是异常。必须校验响应形状，否则会把一个从没提过改动的载荷渲染成
     「没有未提交的改动」：一句斩钉截铁的假话。
-19. **载荷版本检查必须用 `>=`，绝不能用 `===`**：`isNewHost` 曾比较 `schema === 2`；
+20. **载荷版本检查必须用 `>=`，绝不能用 `===`**：`isNewHost` 曾比较 `schema === 2`；
     加一个字段升到 `3` 之后，浏览器半把**更新**的宿主判成旧的、劝用户重启——与事实正好相反，
     而且只在同时存在两半不同版本的机器上才看得见。判断某个字段存在与否就按那个字段来
     （`freshnessNotice` 就是这么做的），总版本判断保持单调。
-20. **"我看见它合并了，图上怎么没有"是 fetch 新鲜度问题，不是绘图 bug**。图谱按设计只画本地，
+21. **"我看见它合并了，图上怎么没有"是 fetch 新鲜度问题，不是绘图 bug**。图谱按设计只画本地，
     诚实的回答需要**本地仓库对远端认知的年龄**，而这份年龄从 refs 推不出来——本地分支和它
     **过期**的远程跟踪 ref 指向**同一个**提交，behind 计数是 `0`，远端却已经又走了十个提交。
     要 stat `FETCH_HEAD`，而且要在**两处** stat：实测某台机器上一个关联工作树自己的
@@ -194,6 +217,52 @@ ZGG_THEME_FILE=<dsh>/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js
     ref **不会**碰父目录的 mtime（实测 `refs/remotes` 停在 09-20 而 `origin/develop` 是 10-02），
     所以永远别 stat 目录；从未 fetch 过的仓库根本没有 `FETCH_HEAD`，那是「没有远端」，
     不是「过期」。
+
+### 提交的文件清单（2026-10-17 新功能带来的三个坑）
+
+22. **列「一个提交改了哪些文件」，三个地方错一处就"什么都没有"，而且都不报错**：
+    - **必须带 `--first-parent`**，`--name-status` 与**单文件 patch 两处都要**。git 对合并提交
+      默认给 combined diff（`--cc`），而「相对**所有**父提交都改了」的文件通常一个都没有——
+      实测**干净合并的 `git show --name-status` 输出是空的**，冲突后手工解决的合并则给
+      `MM␀shared.txt␀`（**两字母状态**，与踩坑 11 的 combined diff 同一类，统一格式的解析器
+      读不懂）。加上 `--first-parent` 之后两者都回到 `A␀side.txt␀` / `M␀shared.txt␀`，也正是
+      VS Code 的口径（与第一父提交比较）。不加的表现是把「这个合并引入了 side.txt」说成
+      「没改任何文件」——一个不报错的错答案。
+    - **sha 必须写在 `--` 之前**：`git show --format= -M -- renamed.txt <sha>` 输出**空**——
+      `--` 之后的一切都是 pathspec，那条 sha 被拿去匹配路径了。
+    - **重命名的单文件 patch 要把新旧两个路径都给**（与踩坑 8 同一个坑，在 `show` 上同样成立）：
+      只给新路径时 `-M` 认不出重命名，输出退化成「new file mode + 整文件新增」——实测
+      `a.txt → renamed.txt` 那条从「只新增 1 行」变成「3 行全算新增」。
+
+    `test/commit-files.test.cjs` 用**真跑出来的字节**（重命名的双路径、二进制的 `-⇥-`、合并的
+    `MM`、空输出）钉解析器与 argv；`test/route.test.cjs` 在真仓库上钉端到端：合并提交的清单
+    **非空**、重命名给两个路径时只新增 1 行。功能面（标题口径、空/截断/旧宿主的说法、点击回调）
+    由 `test/commit-files-view.test.cjs` 钉住，并且它同时检查这个区块**真的被提交详情调用**——
+    「定义了却没调用」在本仓库翻过车（`isNewHost`）。
+
+### 展开块插进虚拟列表（2026-10-17）
+
+23. **详情块原来挂在定高列表之后，所以"点哪一行都得滚到底"**（用户原话）。把它插到点中的那
+    一行下面之后，有三处错一处就出问题，而且**都不报错**：
+    - **纵向映射必须正反两个方向一起改**。行/圆点/泳道线用 `listOffsets().yAt`（正方向），
+      而虚拟窗口用 `rowAt`（反方向）从 `scrollTop` 反推行号。只改正方向的症状是**滚过插入块
+      之后窗口整体错位 `gap / ROW_H` 行**：滚到下面就白了，或者同一批行被重复渲染。
+      `test/lane-layout.test.cjs` 钉住「`rowAt` 是 `yAt` 的逆」（含行内任意位置都落回同一行）。
+    - **展开块必须有正 `z-index`**：泳道 SVG 是 `z-index: 1`（踩坑 18），而展开块是 sizer 里的
+      定位兄弟节点——不给正数，泳道线会直接画在面板身上。
+    - **高度是量出来的，且必须用 `useLayoutEffect`**：清单与 diff 的高度随内容变，估一个常数
+      会在长清单上留白、短清单上让下一行压住面板；换成 `useEffect` 会闪一帧"面板还压着下面的行"。
+      ⚠️ 它**必须从 React 解构出来**（`const { …, useLayoutEffect, … } = React`）——少解构一个
+      hook 的症状是 `TypeError` + **整页白屏**，而四个测试文件会一起红，别当成样式问题去查。
+    - **展开块自己的 top 要用 `gapTop`，不能用 `yAt(openAt + 1)`**。`yAt` 对插入点之后的行
+      已经加了 `gap`，拿它定位等于把面板**再顶下去一个自己的高度**——症状是一大块与面板等高的
+      空白、面板落到空白底下（2026-10-17 第二轮又踩了一次）。不变式：`gapTop` 紧贴展开行的下缘，
+      且 `gapTop + gap === yAt(openAt + 1)`（不留缝、不重叠）。`gapTop` 与"高度量到没有"无关，
+      所以量高度之前面板也不会跑错位置。
+    - 每个渲染测试都自带一份 react 桩（`test/helpers/load-client.cjs` 那份只是默认），加 hook 时
+      **四处都要补**：`render-smoke` / `client-payload` / `end-to-end-render` / `lane-layout`。
+    另外：展开块自带 `maxHeight`（视口 60%）与内部滚动，所以清单/diff 再长也不会把列表顶走；
+    展开后只替用户**滚一次**（刚好把它露出来）——高度随后每变一次都滚会把用户的视线一直往下推。
 
 ## License
 

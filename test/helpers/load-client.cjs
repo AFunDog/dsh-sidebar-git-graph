@@ -26,6 +26,10 @@ function reactStub() {
     createElement: () => ({}),
     useCallback: (fn) => fn,
     useEffect: () => {},
+    // 展开块的高度是 `useLayoutEffect` 量的（绘制前量，避免"面板还压着下面的行"闪一帧）。
+    // 测试里不渲染真实 DOM，所以给个空实现即可——但**必须存在**，否则组件一渲染就抛
+    // "useLayoutEffect is not a function"，而症状是整页白屏。
+    useLayoutEffect: () => {},
     useMemo: (fn) => fn(),
     useRef: (value) => ({ current: value }),
     useState: (value) => [value, () => {}],

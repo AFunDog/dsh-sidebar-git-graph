@@ -8,6 +8,29 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Added
 
+- **Click a commit to see which files it touched — and open any of them.** The expanded commit detail
+  now lists the changed files (status letter, the original name for renames, per-file `+/−` counts),
+  and each row expands its patch **in place**, reusing the Changes area's rendering. Two new host
+  methods back it (`commit`, `commitDiff`); both are fenced exactly like the existing ones and remain
+  strictly read-only.
+  - **A merge commit is compared against its first parent**, and the heading says so. Without
+    `--first-parent`, `git show --name-status` answers **nothing** for a merge — git defaults to a
+    combined diff, and a clean merge changes nothing relative to *all* parents. Measured: a clean
+    merge produced **empty output**, while a conflict-resolved one produced the two-letter `MM`
+    status. Both belong to the "silent wrong answer" family this project keeps getting bitten by.
+  - The sha must sit **before** `--` (after it everything is a pathspec, so the sha matches no path:
+    empty output, no error), and a rename's patch needs **both** paths (`-M` cannot recognise the
+    rename otherwise and the output degrades to "whole file added" — measured: 1 added line → 3).
+  - A binary file says "binary file, no line-by-line diff" when expanded instead of showing an empty
+    diff; an empty commit says so; a capped list says "N in total, first M listed".
+  - A host that predates these methods answers `bad-method`, and the page tells you to restart DSH
+    rather than looking broken.
+  - Tests: `test/commit-files.test.cjs` (parsers and argv, driven by byte-exact real git output),
+    `test/route.test.cjs` (real repositories: a merge's file list must be non-empty, a rename given
+    both paths must add exactly one line), `test/commit-files-view.test.cjs` (the copy for the
+    merge/empty/truncated/old-host cases, the click callback, and a bundle check that the section is
+    actually rendered into the detail block).
+
 - **The page now says when its picture of the remote is behind.** The graph is drawn from the
   **local** repository and this plugin never touches the network — that is the read-only promise.
   A merge that just happened *on the remote* is therefore invisible until someone runs
@@ -32,6 +55,22 @@ All notable changes to this plugin are documented here. The format follows
 - Payloads now carry `schema: 3`.
 
 ### Changed
+
+- **The commit detail now expands directly under the commit you clicked**, instead of at the bottom of
+  the list. It used to be rendered after the whole virtualized list, so whichever row you clicked you
+  had to scroll all the way down to see what it touched. The list's vertical mapping is now
+  parameterised (`listOffsets`: `yAt` / `rowAt`) so the rows below shift down and the lane lines
+  **stretch** across the inserted block — one source of geometry, so the graph can never drift out of
+  step with the rows. The block measures its own height (`useLayoutEffect`, before paint, so the
+  "panel still overlapping the next rows" frame is never shown), caps it at 60% of the viewport with
+  its own scrolling, and scrolls the view just once per expansion so the block is revealed.
+  - ⚠️ Both directions of the mapping had to change together: rows and lane geometry use `yAt`, while
+    the virtual window derives row numbers from `scrollTop` via `rowAt`. Fixing only the forward
+    direction misplaces the window by `gap / ROW_H` rows once you scroll past the block (the list
+    goes blank, or the same rows are rendered twice). `test/lane-layout.test.cjs` pins `rowAt` as the
+    inverse of `yAt`.
+  - The block needs a positive `z-index`: the lane SVG is `z-index: 1` and this block is a positioned
+    sibling — without it the lane lines are painted on top of the panel.
 
 - **`isNewHost` is now `schema >= 2` instead of `schema === 2`.** Adding a field used to make the
   browser half classify a *newer* host as old and tell the user to restart — the opposite of the
@@ -64,6 +103,31 @@ All notable changes to this plugin are documented here. The format follows
   - `test/graph-continuity.test.cjs` pins the stylesheet contract (SVG has a positive `z-index`,
     still `pointer-events: none`; `.zgg-sizer` is positioned; `.zgg-row` carries no positive
     `z-index`).
+
+- **A deleted working tree no longer blanks the whole page.** The browser sends the working
+  directory it was handed, and the host accepted a path that merely *lies inside* a registered
+  workspace — a containment test. Deleting a linked working tree changes neither fact:
+  `canonical()` falls back to `resolve()` when `realpath` fails, so the path still canonicalises,
+  and it is still inside the workspace. The host then hit its "does this directory exist" guard —
+  which ran **before** the repository ladder — and answered `工作目录不存在: …` while the session's
+  own working directory sat right there, alive, one candidate away. The five-step fallback the page
+  advertises never got a turn.
+  - Fixed in two places: a browser-supplied path now has to **exist** to outrank a live host
+    candidate, and the chosen candidate being gone is no longer fatal — the host walks the
+    remaining candidates (session → persisted workspace table → registry → newest session
+    directory) and uses the first one that exists.
+  - The skipped path is **reported, not swallowed**: `workspace.stale` carries `{ path, source }`
+    and the page says which directory is gone and where it drew instead — the same rule the
+    worktree label already followed (`tagReason`). Silently drawing somewhere else is the worst
+    failure mode here.
+  - Only when **every** candidate is gone does it still fail, and the error keeps naming the exact
+    directory — that specificity is why the guard existed in the first place.
+  - Regression tests: `test/route.test.cjs` (a dead path *inside* the workspace plus a live session
+    cwd must still draw and must report the skip; a live claimed path keeps winning; all-dead still
+    fails naming the path; no-candidates still names the path) and `test/repo-picker.test.cjs` (the
+    notice's copy, plus a bundle check that the notice is actually called — `isNewHost` was once
+    defined and never invoked).
+- Payloads now carry `schema: 4` (adds `workspace.stale`).
 
 ## [0.5.0] - 2026-10-01
 

@@ -60,6 +60,9 @@ function makeReact(values) {
       const value = provided === undefined ? initial : provided
       return [typeof value === 'function' ? value() : value, () => {}]
     },
+    // 与上面的 useEffect 同款（本文件选择真的跑一遍 effect）。展开块量高度时拿不到真实
+    // DOM，宿主代码自己会早退（`detailRef.current === null`），所以这里调了也安全。
+    useLayoutEffect: (fn) => { try { fn() } catch { /* 渲染期的桩环境不完整，忽略 */ } },
     useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
   }
 }

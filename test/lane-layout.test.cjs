@@ -57,6 +57,9 @@ function loadInternals() {
         useMemo: (fn) => fn(),
         useRef: (value) => ({ current: value }),
         useState: (value) => [value, () => {}],
+        // 展开块的高度靠 useLayoutEffect 量（见 client.js）：这个文件不渲染 GraphView，
+        // 但桩必须与真实 react 同形——缺一个 hook 的表现是 TypeError + 整页白屏。
+        useLayoutEffect: () => {},
         useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
       }
     }
@@ -79,7 +82,7 @@ async function main() {
   // 过一遍 JSON 把它们搬回本 realm（这些结构本来就是纯 JSON）。
   const norm = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)))
   const assignLanes = (commits, size) => norm(internals.assignLanes(commits, size))
-  const rowGeometry = (layout, index) => norm(internals.rowGeometry(layout, index))
+  const rowGeometry = (layout, index, top) => norm(internals.rowGeometry(layout, index, top))
 
   // ── 常量 ────────────────────────────────────────────────────────────────
   assert.strictEqual(constants.TAB_ID, '@zeng/dsh-sidebar-git-graph:graph')
@@ -237,6 +240,60 @@ async function main() {
   assert.ok(mergeGeometry.d.includes(' C '), '曲线段必须是贝塞尔')
   assert.strictEqual(edgePath(3, 0, 3, 24), 'M 3 0 L 3 24', '同列退化成直线')
   assert.ok(edgePath(0, 0, 14, 24).includes('C'))
+
+  // ── 展开块插在列表中间时的纵向映射（2026-10-17）────────────────────────────
+  //
+  // 详情块以前挂在定高列表**之后**（点哪一行都得滚到底），现在插到点中的那一行下面，
+  // 于是"行号 → y"不再是 index * ROW_H。**正反两个方向必须一起改**：行/圆点/泳道线用
+  // yAt，虚拟窗口用 rowAt 从 scrollTop 反推行号——只改正方向的话，滚过插入块之后窗口会
+  // 整体错位 gap/ROW_H 行（症状是滚到下面就白了，或重复渲染同一批行）。
+  const offsets = internals.listOffsets({ count: 6, rowHeight: 24, openAt: 2, gap: 100 })
+  assert.strictEqual(offsets.total, 6 * 24 + 100, '总高必须把插入块算进去，否则滚不到最后几行')
+  assert.strictEqual(offsets.yAt(2), 48, '插入点自己那一行不动')
+  assert.strictEqual(offsets.yAt(3), 72 + 100, '它下面每一行整体下移 gap')
+  assert.strictEqual(offsets.yAt(5), 120 + 100)
+  for (let index = 0; index < 6; index += 1) {
+    assert.strictEqual(offsets.rowAt(offsets.yAt(index)), index, `rowAt 必须是 yAt 的逆（第 ${index} 行）`)
+    assert.strictEqual(offsets.rowAt(offsets.yAt(index) + 23), index, '行内任意位置都要落回同一行')
+  }
+
+  // ⚠️ 面板自己的位置用 `gapTop`（展开行的**下缘**），与 gap 无关——量到高度之前也要站对，
+  // 拿 `yAt(openAt + 1)` 去定位会把面板再顶下去一个自己的高度：先一块空白、面板落到空白底下。
+  assert.strictEqual(offsets.gapTop, 3 * 24, '插入块顶边 = 展开行的下缘')
+  assert.strictEqual(offsets.gapTop, offsets.yAt(2) + 24, 'gapTop 必须紧贴展开行的下缘')
+  assert.strictEqual(offsets.gapTop + 100, offsets.yAt(3), '面板底边正好是下一行的顶边：不留缝也不重叠')
+  assert.strictEqual(internals.listOffsets({ count: 3, rowHeight: 24, openAt: 2, gap: 50 }).gapTop, 72,
+    '展开最后一行：插入块紧跟其后，别越界')
+
+  // 没展开时退化成均匀网格：既有行为一字不改（`gap: 0` 与 `openAt < 0` 都算没展开）。
+  const plain = internals.listOffsets({ count: 6, rowHeight: 24, openAt: -1, gap: 100 })
+  assert.strictEqual(plain.total, 144)
+  assert.strictEqual(plain.yAt(4), 96)
+  assert.strictEqual(plain.rowAt(96), 4)
+  const noGap = internals.listOffsets({ count: 6, rowHeight: 24, openAt: 2, gap: 0 })
+  assert.strictEqual(noGap.total, 144)
+  assert.strictEqual(noGap.openAt, -1, 'gap 为 0 等于没展开')
+  assert.strictEqual(noGap.gapTop, 3 * 24, '高度还没量到（gap=0）时面板也要站对位置')
+  assert.strictEqual(plain.gapTop, null, '没有展开就没有插入块')
+  assert.strictEqual(internals.listOffsets({ count: 0 }).total, 0)
+  assert.strictEqual(internals.listOffsets({}).openAt, -1)
+  assert.strictEqual(internals.listOffsets(undefined).total, 0)
+
+  // 展开最后一行：插入块在它下面，没有"更下面的行"要移。
+  const last = internals.listOffsets({ count: 3, rowHeight: 24, openAt: 2, gap: 50 })
+  assert.strictEqual(last.total, 3 * 24 + 50)
+  assert.strictEqual(last.yAt(2), 48)
+
+  // 行的 y 由调用方给时，泳道线要跟着**拉长**（整行的线段共用同一个 top）。
+  const stretched = rowGeometry(linear, 1, 124).map((path) => path.d)
+  assert.ok(stretched.length > 0)
+  assert.ok(stretched.some((d) => d.includes('124')), `泳道线要跟着插入块下移：${stretched.join(' | ')}`)
+  assert.ok(stretched.every((d) => !/(^| )24( |$)/.test(d)), `不该残留未偏移的 y=24：${stretched.join(' | ')}`)
+  assert.deepStrictEqual(
+    rowGeometry(linear, 1, 24).map((path) => path.d),
+    rowGeometry(linear, 1).map((path) => path.d),
+    '缺省 top 仍是 index*ROW_H（=24）——既有调用方与既有测试不受影响',
+  )
 
   // 图谱列宽随道数增长，且始终留出内边距。
   assert.ok(graphWidth(diamond) > graphWidth(linear))
