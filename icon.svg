@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" fill="none">
+  <!-- Git 图谱：三条泳道 + 一条从中间汇入右侧的曲线 + 合并提交的空心大点。
+       视角与插件页面一致（历史从上往下）。颜色写死：官方把 icon 以 data: URL
+       塞进 <img>，SVG 里的 currentColor 拿不到页面主题。 -->
+  <!-- 泳道 -->
+  <g stroke="#9aa1c4" stroke-width="1.5" stroke-linecap="round" opacity="0.6">
+    <path d="M10 6v24" />
+    <path d="M18 6v24" />
+    <path d="M26 6v24" />
+  </g>
+  <!-- 汇入曲线：中道 → 右道 -->
+  <path d="M18 14c4.6 0 4.4 9 8 9" stroke="#4d6bfe" stroke-width="1.9" fill="none" stroke-linecap="round" />
+  <!-- 提交点（左道） -->
+  <circle cx="10" cy="10" r="2.4" fill="#4d6bfe" />
+  <circle cx="10" cy="19" r="2.4" fill="#4d6bfe" />
+  <!-- 提交点（中道） -->
+  <circle cx="18" cy="9" r="2.4" fill="#4d6bfe" />
+  <!-- 合并点（右道）：空心大点 -->
+  <circle cx="26" cy="23" r="3.4" fill="none" stroke="#4d6bfe" stroke-width="2.2" />
+</svg>

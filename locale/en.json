@@ -1,1 +1,7 @@
-{ "meta": { "title": "Git graph", "description": "Right-sidebar page: a read-only commit graph over the session workspace (branch and merge lanes)." } }
+{
+  "meta": {
+    "title": "Git graph",
+    "description": "Right-sidebar page: a read-only commit graph over the session workspace (branch and merge lanes).",
+    "detail": "docs/DETAIL.md"
+  }
+}

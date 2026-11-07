@@ -64,8 +64,10 @@ function fakeCtx(services) {
 /** 造一个「session-worktree 插件」的服务对象。 */
 function swService(pick) {
   return {
-    version: 1,
-    selection(sessionId) {
+    // v2：会话 worktree 0.4.0 起暴露 currentWorktree()（从 cwd 反推），
+    // 旧的 selection() 已删除。这里跟着对方的新形状。
+    version: 2,
+    currentWorktree(sessionId) {
       if (typeof pick === 'function') return pick(sessionId)
       return pick
     },
@@ -153,14 +155,17 @@ async function main() {
       ['服务缺席（没装 / 已停用）', {}],
       ['服务是 null', { sessionWorktree: null }],
       ['服务不是对象', { sessionWorktree: 42 }],
-      ['缺 version', { sessionWorktree: { selection: () => ({ path: innerRepo }) } }],
-      ['version 不认识', { sessionWorktree: { version: 99, selection: () => ({ path: innerRepo }) } }],
-      ['缺 selection 方法', { sessionWorktree: { version: 1 } }],
-      ['selection 不是函数', { sessionWorktree: { version: 1, selection: 'nope' } }],
-      ['selection 返回 undefined（存储还没读到）', { sessionWorktree: swService(undefined) }],
-      ['selection 返回 null（明确没选）', { sessionWorktree: swService(null) }],
-      ['selection 返回空路径', { sessionWorktree: swService({ path: '' }) }],
-      ['selection 抛错', { sessionWorktree: { version: 1, selection() { throw new Error('boom') } } }],
+      ['缺 version', { sessionWorktree: { currentWorktree: () => ({ path: innerRepo }) } }],
+      ['version 不认识', { sessionWorktree: { version: 99, currentWorktree: () => ({ path: innerRepo }) } }],
+      // ⚠️ v1（旧版会话 worktree）必须当作「没有信息」：那个版本的 selection()
+      // 返回的是**用户存的标签**，而 0.4.0 起标签机制整体移除。退回旧语义会画错仓库。
+      ['旧版 v1 服务（selection 时代）要忽略', { sessionWorktree: { version: 1, selection: () => ({ path: innerRepo }) } }],
+      ['缺 currentWorktree 方法', { sessionWorktree: { version: 2 } }],
+      ['currentWorktree 不是函数', { sessionWorktree: { version: 2, currentWorktree: 'nope' } }],
+      ['currentWorktree 返回 undefined（还没量过 cwd）', { sessionWorktree: swService(undefined) }],
+      ['currentWorktree 返回 null（不在任何工作树里）', { sessionWorktree: swService(null) }],
+      ['currentWorktree 返回空路径', { sessionWorktree: swService({ path: '' }) }],
+      ['currentWorktree 抛错', { sessionWorktree: { version: 2, currentWorktree() { throw new Error('boom') } } }],
     ]
     for (const [label, services] of cases) {
       const out = await handleGraph(fakeCtx(services), { cwd: ws, sessionId: 'session-1' })

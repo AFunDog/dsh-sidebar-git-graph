@@ -4,6 +4,29 @@ All notable changes to this plugin are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-11-07
+
+### Added
+
+- **Official plugin-page facade.** The card now carries an icon and a long document.
+  - `icon.svg` (colour baked in — the official card renders icons inside an `<img>` data URL,
+    where `currentColor` cannot resolve and degrades to black on the light theme / to an
+    invisible black square on the dark one), `package.json` `icon`, `exports["./icon"]`, and
+    `files` coverage for `icon.svg` + `docs`.
+  - `docs/DETAIL.zh.md` / `docs/DETAIL.md`, referenced from `meta.detail`.
+- `test/packaging.test.cjs`: the nine packaging assertions this package was missing, modelled on
+  `@zeng/dsh-session-worktree`'s equivalent (client export, `dsh.client`, the **`meta`-wrapped**
+  locale shape, icon format/size/containment, `meta.detail`, bundle registration id, bare-package
+  patch row, and `files` coverage). The official `parseDshClient` check degrades gracefully when
+  the official source is not readable on this machine.
+
+### Fixed
+
+- The English description said only "a read-only commit graph over the session workspace" and
+  never mentioned the Changes area or the worktree/label following. Rewritten to match `zh.json`.
+
+---
+
 ## [Unreleased]
 
 ### Added

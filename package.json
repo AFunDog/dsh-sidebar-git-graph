@@ -1,6 +1,6 @@
 {
   "name": "@zeng/dsh-sidebar-git-graph",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "DSH right-sidebar page: a read-only Git commit graph plus a VS Code-style working-tree Changes area (staged/unstaged, inline diffs), for every working tree of the repository. Follows the session's worktree label when @zeng/dsh-session-worktree is installed. Works with or without dsh-better-sidebar.",
   "type": "module",
   "main": "lib/index.js",
@@ -8,11 +8,14 @@
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
     "./locale/*.json": "./locale/*.json",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg"
   },
+  "icon": "./icon.svg",
   "files": [
     "lib",
     "locale",
+    "icon.svg",
     "test",
     "scripts",
     "cordis.patch.yml",
@@ -20,7 +23,8 @@
     "CHANGELOG.md",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "LICENSE",
+    "docs"
   ],
   "license": "MIT",
   "author": "AFunDog",
