@@ -4,6 +4,24 @@ All notable changes to this plugin are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-07
+
+### Fixed
+
+- **看不见会话搬家。** 定位工作区时读的是 `sessions.get(id).header.cwd` —— 那是
+  **创建期**的不可变元数据（出生地）。官方 `create_worktree` 与 `working_directory({ cd })`
+  改的是 `workingDirectory` 投影，不是它。⇒ 官方把会话挪进
+  `<仓库>/.agents/worktrees/<名>` 之后，图谱会继续画主仓库，且不报错。
+  改为 `workingDirectory.get(session)` 优先，回退 `header.cwd`（新增并导出
+  `sessionCwd()`）。
+
+### Tests
+
+- 新增 `test/session-cwd.test.cjs`（7 条）：投影优先、缺席回退、`null` 回退、
+  抛错回退、服务形状不符、空串回退、两边都没有 → `undefined`。
+
+---
+
 ## [0.6.0] - 2026-11-07
 
 ### Added
